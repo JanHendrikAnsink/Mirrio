@@ -1,8 +1,10 @@
-// src/mirrio.jsx — with Vercel Analytics (Vite + React) — FIXED
+// src/mirrio.jsx — Vite + React with Supabase Magic Link + Vercel Analytics & Speed Insights
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
-import { Analytics } from "@vercel/analytics/react"; // Vite/React import
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
+// --- Utilities & faux DB (unchanged from your version) ---
 const DB_KEY = "mirror.db.v1";
 const now = () => Date.now();
 const DAY = 24 * 60 * 60 * 1000;
@@ -55,6 +57,7 @@ function useTicker(interval = 1000) {
   useEffect(() => { const id = setInterval(() => setT((t) => t + 1), interval); return () => clearInterval(id); }, [interval]);
 }
 
+// --- App with real Supabase auth + Analytics & Speed Insights ---
 export default function Mirrio() {
   const [db, setDb] = useState(loadDB());
   const [email, setEmail] = useState(null);
@@ -112,7 +115,13 @@ export default function Mirrio() {
         {/* Add the rest of your views here (profile, groups, group, admin) */}
       </main>
 
-      {import.meta.env.PROD && <Analytics />}
+      {/* Only in production */}
+      {import.meta.env.PROD && (
+        <>
+          <Analytics />
+          <SpeedInsights />
+        </>
+      )}
     </div>
   );
 }
@@ -173,7 +182,7 @@ function AuthView() {
       {step === "sent" && (
         <div className="space-y-3">
           <div className="p-3 border-4 border-black bg-black text-white text-sm">Check <b>{sentTo}</b> and click the link to finish sign-in.</div>
-          <button className="block w-full p-3 border-4 border-black text-center font-bold" onClick={()=>setStep("email")}>Use a different e-mail</button>
+          <button className="block w/full p-3 border-4 border-black text-center font-bold" onClick={()=>setStep("email")}>Use a different e-mail</button>
         </div>
       )}
     </section>
