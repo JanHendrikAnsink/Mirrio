@@ -1,12 +1,25 @@
-# React + Vite
+# Mirrio — Next.js + Supabase (files only)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+These are drop-in files to switch the demo from localStorage to Supabase.
 
-Currently, two official plugins are available:
+## Env (.env.local)
+Already populated in this bundle:
+- NEXT_PUBLIC_SUPABASE_URL
+- NEXT_PUBLIC_SUPABASE_ANON_KEY
+- ADMIN_TOKEN
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+> ⚠️ For production, rotate keys regularly and prefer server-side Service Role keys for admin tasks. Avoid committing `.env.local` to git.
 
-## Expanding the ESLint configuration
+## Files
+- app/layout.tsx — App shell.
+- app/page.tsx — UI & client logic (auth, groups, rounds, votes, comments).
+- lib/supabaseClient.ts — Supabase client.
+- app/api/admin/statements/route.ts — Admin endpoints secured by `x-admin-token`.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Supabase RPCs expected
+- `my_groups()`
+- `create_group(p_name text)`
+- `issue_new_statement(p_group_id uuid)`
+- `maybe_close_round(p_gs uuid)`
+
+Set Vercel build to include `.env.local` values or add them as Project Env Vars.
