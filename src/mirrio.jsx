@@ -1,7 +1,9 @@
-// src/mirrio.jsx — updated for real Supabase Magic Link email auth (Vite project)
+// src/mirrio.jsx — with Vercel Analytics (Vite + React)
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
+import { Analytics } from "@vercel/analytics/react"; // <-- Vite/React import
 
+// --- Utilities & faux DB (unchanged) ---
 const DB_KEY = "mirror.db.v1";
 const now = () => Date.now();
 const HOUR = 60 * 60 * 1000;
@@ -55,6 +57,7 @@ function useTicker(interval = 1000) {
   useEffect(() => { const id = setInterval(() => setT((t) => t + 1), interval); return () => clearInterval(id); }, [interval]);
 }
 
+// --- App with real Supabase auth + Analytics ---
 export default function Mirrio() {
   const [db, setDb] = useState(loadDB());
   const [email, setEmail] = useState(null);
@@ -62,6 +65,7 @@ export default function Mirrio() {
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [adminOpen, setAdminOpen] = useState(false);
 
+  // init session & listen for changes
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -80,6 +84,7 @@ export default function Mirrio() {
   useEffect(() => saveDB(db), [db]);
   useTicker(1000);
 
+  // Auto-join via invite link (local demo logic)
   useEffect(() => {
     const url = new URL(window.location.href);
     const invite = url.searchParams.get("invite");
@@ -93,8 +98,10 @@ export default function Mirrio() {
         }
         return copy;
       });
-      url.searchParams.delete("invite"); history.replaceState({}, "", url.toString());
-      setActiveGroupId(invite); setView("group");
+      url.searchParams.delete("invite");
+      history.replaceState({}, "", url.toString());
+      setActiveGroupId(invite);
+      setView("group");
     }
   }, [email]);
 
@@ -105,8 +112,11 @@ export default function Mirrio() {
       <Header email={email} me={me} onSignOut={() => { supabase.auth.signOut(); setView("login"); }} onGo={(v)=>setView(v)} setAdminOpen={setAdminOpen} />
       <main className="mx-auto w-full max-w-md p-3 pb-24">
         {view === "login" && <AuthView />}
-        {/* Put the rest of your original views below if they aren't already here */}
+        {/* Add the rest of your views here (profile, groups, group, admin) */}
       </main>
+
+      {/* Load analytics only in production to avoid noise locally */}
+      {import.meta.env.PROD && <Analytics />}
     </div>
   );
 }
@@ -149,7 +159,7 @@ function AuthView() {
           <button className="w-full p-3 border-4 border-black font-bold active:translate-y-0.5 disabled:opacity-60"
             disabled={sending}
             onClick={async()=>{
-              if (!emailInput.includes("@")) return alert("Enter a valid email");
+              if (!emailInput.includes("@")) ) return alert("Enter a valid email");
               setSending(true);
               const { error } = await supabase.auth.signInWithOtp({
                 email: emailInput.trim(),
