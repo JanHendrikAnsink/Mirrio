@@ -1,13 +1,11 @@
-// src/mirrio.jsx — with Vercel Analytics (Vite + React)
+// src/mirrio.jsx — with Vercel Analytics (Vite + React) — FIXED
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
-import { Analytics } from "@vercel/analytics/react"; // <-- Vite/React import
+import { Analytics } from "@vercel/analytics/react"; // Vite/React import
 
-// --- Utilities & faux DB (unchanged) ---
 const DB_KEY = "mirror.db.v1";
 const now = () => Date.now();
-const HOUR = 60 * 60 * 1000;
-const DAY = 24 * HOUR;
+const DAY = 24 * 60 * 60 * 1000;
 const WEEK = 7 * DAY;
 
 function uid(prefix = "id") {
@@ -57,7 +55,6 @@ function useTicker(interval = 1000) {
   useEffect(() => { const id = setInterval(() => setT((t) => t + 1), interval); return () => clearInterval(id); }, [interval]);
 }
 
-// --- App with real Supabase auth + Analytics ---
 export default function Mirrio() {
   const [db, setDb] = useState(loadDB());
   const [email, setEmail] = useState(null);
@@ -115,7 +112,6 @@ export default function Mirrio() {
         {/* Add the rest of your views here (profile, groups, group, admin) */}
       </main>
 
-      {/* Load analytics only in production to avoid noise locally */}
       {import.meta.env.PROD && <Analytics />}
     </div>
   );
@@ -159,7 +155,7 @@ function AuthView() {
           <button className="w-full p-3 border-4 border-black font-bold active:translate-y-0.5 disabled:opacity-60"
             disabled={sending}
             onClick={async()=>{
-              if (!emailInput.includes("@")) ) return alert("Enter a valid email");
+              if (!emailInput.includes("@")) return alert("Enter a valid email");
               setSending(true);
               const { error } = await supabase.auth.signInWithOtp({
                 email: emailInput.trim(),
