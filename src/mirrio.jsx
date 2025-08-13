@@ -142,7 +142,18 @@ export default function Mirrio() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    // Fallback: Check session after a delay if still loading
+    const timeoutId = setTimeout(() => {
+      if (loading) {
+        console.log('Timeout reached, forcing session check...');
+        initAuth();
+      }
+    }, 3000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   // Handle invite links
@@ -459,6 +470,12 @@ function ProfileView({ user, profile, onUpdate }) {
   const [lastName, setLastName] = useState(profile?.last_name || "");
   const [imageUrl, setImageUrl] = useState(profile?.image_url || "");
   const [saving, setSaving] = useState(false);
+  
+  // Password management
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   async function onPick(e) {
     const file = e.target.files?.[0];
@@ -490,9 +507,41 @@ function ProfileView({ user, profile, onUpdate }) {
     }
   }
 
+  async function handlePasswordSet() {
+    if (!newPassword || newPassword.length < 6) {
+      alert("Password must be at least 6 characters");
+      return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+      alert("Passwords do not match");
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      
+      if (error) throw error;
+      
+      alert("Password set successfully! You can now login with your email and password.");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordSection(false);
+    } catch (e) {
+      alert("Error setting password: " + e.message);
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
   return (
     <section className="space-y-4">
       <h1 className="text-2xl font-black">Your profile</h1>
+      
+      {/* Profile Picture Section */}
       <div className="grid grid-cols-3 gap-3 items-center">
         <div className="col-span-1">
           <Avatar img={imageUrl} size={64} label={firstName || user.email} />
@@ -501,6 +550,8 @@ function ProfileView({ user, profile, onUpdate }) {
           Upload a square image for best results.
         </div>
       </div>
+      
+      {/* Profile Information */}
       <div className="space-y-2">
         <label className="block text-sm font-bold">First name</label>
         <input 
@@ -526,8 +577,56 @@ function ProfileView({ user, profile, onUpdate }) {
           onClick={handleSave}
           disabled={saving}
         >
-          {saving ? "Saving..." : "Save"}
+          {saving ? "Saving..." : "Save Profile"}
         </button>
+      </div>
+
+      {/* Password Section */}
+      <div className="border-t-4 border-black pt-4">
+        <button
+          className="w-full p-3 border-4 border-black font-bold"
+          onClick={() => setShowPasswordSection(!showPasswordSection)}
+        >
+          {showPasswordSection ? "Cancel Password Setup" : "Set Password (for Email Login)"}
+        </button>
+        
+        {showPasswordSection && (
+          <div className="mt-4 space-y-2 p-3 border-4 border-black bg-yellow-50">
+            <div className="text-sm opacity-70 mb-2">
+              Set a password to enable email/password login in addition to magic links.
+            </div>
+            <label className="block text-sm font-bold">New Password</label>
+            <input 
+              className="w-full p-3 border-4 border-black" 
+              type="password"
+              placeholder="At least 6 characters"
+              value={newPassword} 
+              onChange={(e) => setNewPassword(e.target.value)} 
+            />
+            <label className="block text-sm font-bold">Confirm Password</label>
+            <input 
+              className="w-full p-3 border-4 border-black" 
+              type="password"
+              placeholder="Repeat password"
+              value={confirmPassword} 
+              onChange={(e) => setConfirmPassword(e.target.value)} 
+            />
+            <button 
+              className="w-full p-3 border-4 border-black font-bold bg-black text-white disabled:opacity-60" 
+              onClick={handlePasswordSet}
+              disabled={passwordSaving}
+            >
+              {passwordSaving ? "Setting Password..." : "Set Password"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Account Info */}
+      <div className="text-xs opacity-70 border-t-4 border-black pt-4">
+        <div>Email: <b>{user.email}</b></div>
+        <div>User ID: <code>{user.id}</code></div>
+        <div>Last Sign In: {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : "Never"}</div>
       </div>
     </section>
   );
