@@ -29,7 +29,7 @@ import {
   joinGroupByInvite
 } from "./lib/supaApi";
 
-const ADMIN_UUID = "be064bc9-0f03-4333-b832-688b8ba636d1";
+const ADMIN_UUID = "5744d1ce-d6f5-42fb-9f0e-5e9126b845ca";
 const DAY = 24 * 60 * 60 * 1000;
 
 function humanTime(ms) {
