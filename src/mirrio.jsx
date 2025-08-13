@@ -348,7 +348,14 @@ export default function Mirrio() {
                   </button>
                 </>
               )}
-              
+              <div className="pt-4">
+                <button 
+                  className="w-full p-3 border-4 border-black font-bold text-left"
+                  onClick={() => { setMenuOpen(false); setView("support"); }}
+                >
+                  Send money
+                </button>
+              </div>
               <div className="pt-4">
                 <button 
                   className="w-full p-3 border-4 border-black font-bold text-left"
@@ -380,6 +387,7 @@ export default function Mirrio() {
         {view === "group" && activeGroupId && user && (
           <GroupDetail groupId={activeGroupId} user={user} setView={setView} />
         )}
+        {view === "support" && <SupportView onBack={() => setView(user ? "groups" : "home")} />}
         {view === "imprint" && <ImprintView onBack={() => setView(user ? "groups" : "home")} />}
         {view === "admin" && (
           <AdminView
@@ -1385,38 +1393,38 @@ function HomeView({ onGetStarted }) {
       </div>
 
       <div className="space-y-4">
-        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#d8e1fc' }}>
+        <div className="p-4 border-4 border-black">
           <div className="flex items-start gap-3">
             <span className="font-black text-xl">1.</span>
             <div>
-              <strong>Join a group</strong> with friends, family, or your partner.
+              <strong>Join a group</strong> with <span style={{ backgroundColor: '#d8e1fc', padding: '2px 4px' }}>friends</span>, <span style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>family</span>, or your <span style={{ backgroundColor: '#ffd4e5', padding: '2px 4px' }}>partner</span>.
             </div>
           </div>
         </div>
 
-        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#dce7d0' }}>
+        <div className="p-4 border-4 border-black">
           <div className="flex items-start gap-3">
             <span className="font-black text-xl">2.</span>
             <div>
-              <strong>Read a statement</strong> like <em>"Who loves hugs the most?"</em>
+              <strong>Read a statement</strong> like <em>"Who loves <span style={{ backgroundColor: '#fed89e', padding: '2px 4px' }}>hugs</span> the most?"</em>
             </div>
           </div>
         </div>
 
-        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#ffd4e5' }}>
+        <div className="p-4 border-4 border-black">
           <div className="flex items-start gap-3">
             <span className="font-black text-xl">3.</span>
             <div>
-              <strong>Vote anonymously</strong> on who it fits best.
+              <strong>Vote <span style={{ backgroundColor: '#d8e1fc', padding: '2px 4px' }}>anonymously</span></strong> on who it fits best.
             </div>
           </div>
         </div>
 
-        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#fed89e' }}>
+        <div className="p-4 border-4 border-black">
           <div className="flex items-start gap-3">
             <span className="font-black text-xl">4.</span>
             <div>
-              <strong>See the results</strong>, laugh, and talk about them.
+              <strong>See the <span style={{ backgroundColor: '#fed89e', padding: '2px 4px' }}>results</span></strong>, laugh, and talk about them.
             </div>
           </div>
         </div>
@@ -1427,6 +1435,12 @@ function HomeView({ onGetStarted }) {
           Each round is quick. Each answer is a{' '}
           <strong style={{ backgroundColor: '#ffd4e5', padding: '2px 4px' }}>surprise</strong>.{' '}
           Each point brings you closer.
+        </p>
+
+        <p className="text-lg">
+          Mirrio brings people closer by turning honest reflection into{' '}
+          <strong style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>personal growth</strong>{' '}
+          — helping each of us notice patterns, deepen empathy, and strengthen our relationships, one round at a time.
         </p>
         
         <p className="text-lg font-bold">
@@ -1444,6 +1458,124 @@ function HomeView({ onGetStarted }) {
       >
         Let's open a group →
       </button>
+    </section>
+  );
+}
+
+// Support/Donation Page
+function SupportView({ onBack }) {
+  return (
+    <section className="space-y-6">
+      <div className="flex items-center gap-2">
+        <button 
+          className="px-2 py-1 border-2 border-black"
+          onClick={onBack}
+        >
+          ← Back
+        </button>
+        <h1 className="text-2xl font-black">Keep me motivated</h1>
+      </div>
+
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-black mb-4">Why I built Mirrio.</h2>
+        </div>
+
+        <div className="p-4 border-4 border-black">
+          <h3 className="font-bold text-lg mb-2">Purpose</h3>
+          <p>
+            Mirrio exists to bring people <strong>closer <span style={{ backgroundColor: '#ffe4cc', padding: '2px 4px' }}>together</span></strong>. 
+            I wanted deeper relationships and to understand <strong>how the world sees me</strong>—so I built a game 
+            that turns honest <strong style={{ backgroundColor: '#d8e1fc', padding: '2px 4px' }}>reflection</strong> into 
+            gentle conversations and personal <strong style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>growth</strong>.
+          </p>
+        </div>
+
+        <div className="p-4 border-4 border-black">
+          <h3 className="font-bold text-lg mb-2">How Mirrio is funded</h3>
+          <p className="mb-3">
+            I'm an independent builder. Mirrio runs on <strong>community contributions</strong>.
+          </p>
+          <div className="flex gap-4 justify-center p-3 bg-gray-50 border-2 border-black">
+            <div className="text-center">
+              <div className="text-2xl font-black" style={{ backgroundColor: '#fed89e', padding: '4px 8px' }}>15</div>
+              <div className="text-sm mt-1">supporters</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-black" style={{ backgroundColor: '#fed89e', padding: '4px 8px' }}>120 €</div>
+              <div className="text-sm mt-1">average</div>
+            </div>
+          </div>
+          <p className="mt-3 text-sm">
+            Your support keeps the lights on: hosting, maintenance, and ongoing improvements.
+          </p>
+        </div>
+
+        <div className="p-4 border-4 border-black">
+          <h3 className="font-bold text-lg mb-4">Choose your contribution</h3>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="font-black text-xl" style={{ backgroundColor: '#d8e1fc', padding: '2px 8px' }}>5 €</span>
+              <span>— like <strong>two beers</strong> with friends.</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-black text-xl" style={{ backgroundColor: '#dce7d0', padding: '2px 8px' }}>10 €</span>
+              <span>— a simple <strong>lunch</strong> that fuels a day of work.</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-black text-xl" style={{ backgroundColor: '#ffd4e5', padding: '2px 8px' }}>50 €</span>
+              <span>— about <strong>one month of software licenses</strong>.</span>
+            </div>
+          </div>
+          <p className="mt-4 text-sm italic">
+            Give what feels right. Any amount helps.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <a 
+            href="https://www.paypal.me/janansink"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full p-4 border-4 border-black font-bold text-center hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: '#fed89e' }}
+          >
+            Donate via PayPal →
+          </a>
+          
+          <div className="flex gap-2 justify-center">
+            <a 
+              href="https://www.paypal.me/janansink/5"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#d8e1fc' }}
+            >
+              5 €
+            </a>
+            <span className="py-1">·</span>
+            <a 
+              href="https://www.paypal.me/janansink/10"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#dce7d0' }}
+            >
+              10 €
+            </a>
+            <span className="py-1">·</span>
+            <a 
+              href="https://www.paypal.me/janansink/25"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#ffd4e5' }}
+            >
+              25 €
+            </a>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
