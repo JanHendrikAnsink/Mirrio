@@ -279,7 +279,8 @@ export async function listRounds(groupId) {
 }
 
 export async function getActiveRound(groupId) {
-  const { data, error } = await supabase
+  // Zuerst alle aktiven Rounds holen
+  const { data: rounds, error } = await supabase
     .from("rounds")
     .select(`
       *,
@@ -288,13 +289,28 @@ export async function getActiveRound(groupId) {
     `)
     .eq("group_id", groupId)
     .gt("expires_at", new Date().toISOString())
-    .is("round_results.closed_at", null)
-    .order("issued_at", { ascending: false })
-    .limit(1)
-    .single();
+    .order("issued_at", { ascending: false });
   
-  if (error && error.code !== 'PGRST116') throw error; // Ignore not found
-  return data;
+  if (error) throw error;
+  
+  // Dann filtern wir die ohne round_results
+  if (!rounds || rounds.length === 0) return null;
+  
+  // Check welche Rounds noch nicht geschlossen sind
+  for (const round of rounds) {
+    const { data: results } = await supabase
+      .from("round_results")
+      .select("*")
+      .eq("round_id", round.id)
+      .single();
+    
+    if (!results) {
+      // Diese Round ist noch aktiv
+      return round;
+    }
+  }
+  
+  return null; // Keine aktive Round gefunden
 }
 
 export async function createRound({ groupId, statementId, expiresIn = 24 * 60 * 60 * 1000 }) {

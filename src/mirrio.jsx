@@ -576,12 +576,12 @@ function ProfileView({ user, profile, onUpdate }) {
       
       if (error) throw error;
       
-      alert("Password set successfully! You can now login with your email and password.");
+      alert("✅ Password set successfully! You can now login with your email and password.");
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswordSection(false);
     } catch (e) {
-      alert("Error setting password: " + e.message);
+      alert("❌ Error setting password: " + e.message);
     } finally {
       setPasswordSaving(false);
     }
@@ -686,6 +686,7 @@ function GroupsView({ user, setView, setActiveGroupId }) {
   const [groups, setGroups] = useState([]);
   const [editions, setEditions] = useState([]);
   const [name, setName] = useState("");
+  const [selectedEditionId, setSelectedEditionId] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
@@ -698,7 +699,12 @@ function GroupsView({ user, setView, setActiveGroupId }) {
     try {
       const [grps, eds] = await Promise.all([listGroups(), listEditions()]);
       setGroups(grps);
-      setEditions(eds.filter(e => e.active));
+      const activeEditions = eds.filter(e => e.active);
+      setEditions(activeEditions);
+      // Auto-select first active edition
+      if (activeEditions.length > 0 && !selectedEditionId) {
+        setSelectedEditionId(activeEditions[0].id);
+      }
     } catch (e) {
       console.error("Error loading data:", e);
     } finally {
@@ -709,15 +715,15 @@ function GroupsView({ user, setView, setActiveGroupId }) {
   async function handleCreateGroup() {
     if (!name.trim()) return alert("Name required");
     
-    const activeEdition = editions.find(e => e.active);
-    if (!activeEdition) {
-      return alert("No active edition available. Please contact admin.");
+    if (!selectedEditionId) {
+      return alert("Please select an edition for your group");
     }
 
     setCreating(true);
     try {
-      await createGroup({ name: name.trim(), editionId: activeEdition.id });
+      await createGroup({ name: name.trim(), editionId: selectedEditionId });
       setName("");
+      alert("✅ Group created successfully!");
       await loadData();
     } catch (e) {
       alert("Error creating group: " + e.message);
@@ -740,13 +746,40 @@ function GroupsView({ user, setView, setActiveGroupId }) {
           value={name} 
           onChange={(e) => setName(e.target.value)} 
         />
+        
+        {editions.length > 0 && (
+          <>
+            <label className="block text-sm font-bold">Select Edition</label>
+            <select
+              className="w-full p-3 border-4 border-black"
+              value={selectedEditionId}
+              onChange={(e) => setSelectedEditionId(e.target.value)}
+            >
+              {editions.map(ed => (
+                <option key={ed.id} value={ed.id}>
+                  {ed.name} {ed.slug ? `(${ed.slug})` : ''}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs opacity-70">
+              The edition determines which statements your group will use. This cannot be changed later.
+            </div>
+          </>
+        )}
+        
         <button
           className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
           onClick={handleCreateGroup}
           disabled={creating || editions.length === 0}
         >
-          {creating ? "Creating..." : "Create group"}
+          {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
         </button>
+        
+        {editions.length === 0 && (
+          <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
+            No active editions available. Please contact the admin to create editions.
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3">
@@ -755,7 +788,7 @@ function GroupsView({ user, setView, setActiveGroupId }) {
             <div className="flex items-center gap-2">
               <div className="font-extrabold text-lg">{g.name}</div>
               <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
-                {g.group_members?.length || 0} members
+                {g.group_members?.length || 1} member{(g.group_members?.length || 1) !== 1 ? 's' : ''}
               </span>
             </div>
             <div className="text-xs mt-1 opacity-70">
