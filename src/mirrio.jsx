@@ -1,4 +1,4 @@
-// src/mirrio.jsx — Restored full UI (hamburger, groups, invites) + Supabase Magic Link + error handling + Vercel analytics
+// src/mirrio.jsx — Admin improvements + /admin route + Editions
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
@@ -15,38 +15,15 @@ function uid(prefix = "id") {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
 }
 
-function loadDB() {
-  try {
-    const raw = localStorage.getItem(DB_KEY);
-    if (!raw) return createEmptyDB();
-    const data = JSON.parse(raw);
-    return {
-      ...createEmptyDB(),
-      ...data,
-      users: data.users || {},
-      groups: data.groups || {},
-      statements: Array.isArray(data.statements) ? data.statements : defaultStatements(),
-      notifications: data.notifications || {},
-    };
-  } catch (e) {
-    return createEmptyDB();
-  }
+function defaultEditions() {
+  // seed 2 editions
+  const friends = { id: uid("ed"), name: "Friends", slug: "friends", active: true };
+  const family  = { id: uid("ed"), name: "Family",  slug: "family",  active: true };
+  return [friends, family];
 }
 
-function saveDB(db) {
-  localStorage.setItem(DB_KEY, JSON.stringify(db));
-}
-
-function createEmptyDB() {
-  return {
-    users: {}, // email -> { email, firstName, lastName, imageDataURL }
-    groups: {}, // id -> { id, name, ownerEmail, members: [email], rounds: [...], leaderboard: {email: points}, usedStatementIds: [], nextIssueAt?: number }
-    statements: defaultStatements(), // {id, text}
-    notifications: {}, // email -> [{ id, ts, text, groupId }]
-  };
-}
-
-function defaultStatements() {
+function defaultStatementsFor(editions) {
+  const friendsId = (editions.find(e=>e.slug==="friends")||editions[0]).id;
   return [
     "Would most likely befriend a stranger in an elevator.",
     "Has the most chaotic desktop (real or computer).",
@@ -58,7 +35,45 @@ function defaultStatements() {
     "Secretly judges everyone’s playlist (but with love).",
     "Would start dancing first at a silent disco.",
     "Will adopt the next stray cat they see.",
-  ].map((text) => ({ id: uid("stmt"), text }));
+  ].map((text) => ({ id: uid("stmt"), text, editionId: friendsId }));
+}
+
+function createEmptyDB() {
+  const editions = defaultEditions();
+  return {
+    users: {}, // email -> { email, firstName, lastName, imageDataURL }
+    groups: {}, // id -> { id, name, ownerEmail, members: [email], rounds: [...], leaderboard: {email: points}, usedStatementIds: [], nextIssueAt?: number, editionId? }
+    statements: defaultStatementsFor(editions), // {id, text, editionId}
+    notifications: {}, // email -> [{ id, ts, text, groupId }]
+    editions, // [{id,name,slug,active}]
+  };
+}
+
+function loadDB() {
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    if (!raw) return createEmptyDB();
+    const data = JSON.parse(raw);
+    // ensure editions exist; if missing, seed
+    const editions = Array.isArray(data.editions) && data.editions.length ? data.editions : defaultEditions();
+    // upgrade existing statements without editionId to default
+    const upgradedStatements = (data.statements || defaultStatementsFor(editions)).map(s => (s.editionId ? s : { ...s, editionId: editions[0].id }));
+    return {
+      ...createEmptyDB(),
+      ...data,
+      users: data.users || {},
+      groups: data.groups || {},
+      statements: upgradedStatements,
+      notifications: data.notifications || {},
+      editions,
+    };
+  } catch (e) {
+    return createEmptyDB();
+  }
+}
+
+function saveDB(db) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
 }
 
 function dbAddNotification(db, email, note) {
@@ -88,9 +103,16 @@ function useTicker(interval = 1000) {
 export default function Mirrio() {
   const [db, setDb] = useState(loadDB());
   const [email, setEmail] = useState(null);
-  const [view, setView] = useState(() => (new URL(location.href)).searchParams.get("admin") ? "admin" : "login");
+  const [view, setView] = useState(() => location.pathname === "/admin" ? "admin" : "login");
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [adminOpen, setAdminOpen] = useState(false);
+
+  // keep view in sync with path for /admin
+  useEffect(() => {
+    const onPop = () => setView(location.pathname === "/admin" ? "admin" : (email ? "groups" : "login"));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [email]);
 
   // Process Supabase session
   useEffect(() => {
@@ -100,13 +122,17 @@ export default function Mirrio() {
       const em = data?.session?.user?.email || null;
       if (mounted) {
         setEmail(em);
-        setView((v) => (em ? (v === "login" ? "groups" : v) : "login"));
+        if (location.pathname !== "/admin") {
+          setView(em ? "groups" : "login");
+        }
       }
     })();
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
       const em = session?.user?.email || null;
       setEmail(em);
-      setView((v) => (em ? (v === "login" ? "groups" : v) : "login"));
+      if (location.pathname !== "/admin") {
+        setView(em ? "groups" : "login");
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -173,7 +199,7 @@ export default function Mirrio() {
       <Header
         email={email}
         me={me}
-        onSignOut={() => { supabase.auth.signOut(); setView("login"); }}
+        onSignOut={() => { supabase.auth.signOut(); if (location.pathname !== "/admin") setView("login"); }}
         onGo={(v) => setView(v)}
         setAdminOpen={setAdminOpen}
       />
@@ -186,17 +212,18 @@ export default function Mirrio() {
           <ProfileView db={db} setDb={setDb} email={email} />
         )}
         {view === "groups" && email && (
-          <GroupsView db={db} setDb={setDb} email={email} setView={setView} setActiveGroupId={setActiveGroupId} />
+          <GroupsView db={db} setDb={setDb} email={email} setView={setView} setActiveGroupId={setActiveGroupId} editions={db.editions} />
         )}
         {view === "group" && activeGroupId && email && (
           <GroupDetail db={db} setDb={setDb} groupId={activeGroupId} meEmail={email} />
         )}
         {view === "admin" && (
-          <AdminView db={db} setDb={setDb} />
+          <AdminView db={db} setDb={setDb} onExit={() => { history.pushState({}, "", "/"); setView(email ? "groups" : "login"); }} />
         )}
       </main>
 
-      <AdminQuickAccess adminOpen={adminOpen} setAdminOpen={setAdminOpen} onGoAdmin={() => setView("admin")} />
+      {/* AdminQuickAccess: Admin-Link entfernt (nur noch /admin direkt) */}
+      <AdminQuickAccess adminOpen={adminOpen} setAdminOpen={setAdminOpen} />
 
       {import.meta.env.PROD && (
         <>
@@ -241,16 +268,16 @@ function Header({ email, me, onSignOut, onGo, setAdminOpen }) {
   );
 }
 
-function AdminQuickAccess({ adminOpen, setAdminOpen, onGoAdmin }) {
+function AdminQuickAccess({ adminOpen, setAdminOpen }) {
   if (!adminOpen) return null;
   return (
     <div className="fixed inset-0 z-20 bg-black/60 flex items-end justify-center" onClick={() => setAdminOpen(false)}>
       <div className="w-full max-w-md bg-white border-4 border-black m-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="font-extrabold text-lg mb-2">Menu</div>
         <div className="space-y-2">
-          <a className="block w-full px-3 py-2 border-2 border-black text-center" href={withQuery({ admin: "1" })} onClick={(e)=>{e.preventDefault(); setAdminOpen(false); onGoAdmin();}}>Admin</a>
+          {/* Admin-Link entfernt, /admin ist nur direkt erreichbar */}
           <a className="block w-full px-3 py-2 border-2 border-black text-center" href={withQuery({})}>Copy current URL</a>
-          <p className="text-xs opacity-70">Tip: Share group invites or magic links from within the respective pages.</p>
+          <p className="text-xs opacity-70">Tip: Share group invites from within group pages.</p>
         </div>
       </div>
     </div>
@@ -273,6 +300,8 @@ function AuthView({ db, setDb, onLoggedIn }) {
   const [sentTo, setSentTo] = useState(null);
   const [sending, setSending] = useState(false);
 
+  const redirectBase = import.meta.env.DEV ? "http://localhost:5173" : "https://mirrio.app";
+
   return (
     <section className="space-y-4">
       <h1 className="text-2xl font-black">Sign in</h1>
@@ -294,7 +323,7 @@ function AuthView({ db, setDb, onLoggedIn }) {
               setSending(true);
               const { error } = await supabase.auth.signInWithOtp({
                 email: email.trim(),
-                options: { emailRedirectTo: window.location.origin },
+                options: { emailRedirectTo: redirectBase },
               });
               setSending(false);
               if (error) {
@@ -323,6 +352,7 @@ function AuthView({ db, setDb, onLoggedIn }) {
   );
 }
 
+// =============== Profile =====================================
 function ProfileView({ db, setDb, email }) {
   const u = db.users[email] || { email };
   const [firstName, setFirstName] = useState(u.firstName || "");
@@ -345,7 +375,7 @@ function ProfileView({ db, setDb, email }) {
         <div className="col-span-2 text-xs opacity-70">Upload a square image for best results.</div>
       </div>
       <div className="space-y-2">
-        <label className="block text-sm font-bold">First name</label>
+        <label className="block text	sm font-bold">First name</label>
         <input className="w-full p-3 border-4 border-black" value={firstName} onChange={(e)=>setFirstName(e.target.value)} />
         <label className="block text-sm font-bold">Last name</label>
         <input className="w-full p-3 border-4 border-black" value={lastName} onChange={(e)=>setLastName(e.target.value)} />
@@ -380,7 +410,7 @@ function Avatar({ img, label, size = 40 }) {
 }
 
 // =============== Groups ======================================
-function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
+function GroupsView({ db, setDb, email, setView, setActiveGroupId, editions }) {
   const myGroups = Object.values(db.groups).filter((g) => g.members.includes(email));
   const [name, setName] = useState("");
 
@@ -394,9 +424,10 @@ function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
         <button className="w-full p-3 border-4 border-black font-bold active:translate-y-0.5" onClick={()=>{
           if (!name.trim()) return alert("Name required");
           const id = uid("group");
+          const defaultEditionId = editions[0]?.id;
           setDb((prev)=>{
             const copy = { ...prev, groups: { ...prev.groups } };
-            copy.groups[id] = { id, name: name.trim(), ownerEmail: email, members: [email], rounds: [], leaderboard: { [email]: 0 }, usedStatementIds: [], nextIssueAt: null };
+            copy.groups[id] = { id, name: name.trim(), ownerEmail: email, members: [email], rounds: [], leaderboard: { [email]: 0 }, usedStatementIds: [], nextIssueAt: null, editionId: defaultEditionId };
             return copy;
           });
           setName("");
@@ -409,6 +440,9 @@ function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
             <div className="flex items-center gap-2">
               <div className="font-extrabold text-lg">{g.name}</div>
               <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">{g.members.length} members</span>
+            </div>
+            <div className="text-xs mt-1 opacity-70">
+              Edition: {db.editions.find(e=>e.id===g.editionId)?.name || "—"}
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button className="p-2 border-2 border-black" onClick={()=>{ setActiveGroupId(g.id); setView("group"); }}>Open</button>
@@ -429,7 +463,6 @@ function InviteButton({ group }) {
   const inviteURL = useMemo(()=>{
     const url = new URL(location.href);
     url.searchParams.set("invite", group.id);
-    url.searchParams.delete("admin");
     return url.toString();
   }, [group.id]);
 
@@ -506,7 +539,7 @@ function GroupDetail({ db, setDb, groupId, meEmail }) {
             <div key={r.id} className={`p-2 border-2 border-black ${r.closed?"bg-gray-100":""}`}>
               <div className="text-xs opacity-70">{new Date(r.issuedAt).toLocaleString()}</div>
               <div className="font-bold">“{getStatementText(db, r.statementId)}”</div>
-              <div className="text-sm mt-1">{r.closed ? (
+              <div className="text	sm mt-1">{r.closed ? (
                 <>
                   <b>Winner:</b> {r.winnerEmails.length>0 ? r.winnerEmails.map((e)=>formatUser(db.users[e]||{email:e})).join(", ") : "—"}
                   <div className="text-xs mt-1">Votes: {Object.entries(r.tally || {}).map(([e,c])=>`${formatUser(db.users[e]||{email:e})} (${c})`).join(" · ") || "—"}</div>
@@ -550,7 +583,7 @@ function GroupDetail({ db, setDb, groupId, meEmail }) {
       <div className="p-3 border-4 border-black">
         <div className="font-extrabold mb-2">Members</div>
         <div className="grid gap-2">
-          {membersDetailed.map((m)=> (
+          {membersDetailed.map((	m)=> (
             <div key={m.email} className="flex items-center gap-2">
               <Avatar img={db.users[m.email]?.imageDataURL} label={m.name} />
               <span className="ml-auto text-xs opacity-70">{m.email}</span>
@@ -631,7 +664,7 @@ function closeRound(db, group, round) {
   round.winnerEmails = winners;
   // points (1 point per winner)
   winners.forEach((e)=>{ group.leaderboard[e] = (group.leaderboard[e]||0) + 1; });
-  // notify all members with results
+  // notify group members with results
   group.members.forEach((m)=>{
     dbAddNotification(db, m, { text: `Round finished in “${group.name}”. ${winners.length?`Winner: ${winners.map((e)=>formatUser(db.users[e]||{email:e})).join(", ")}`:"No votes"}.`, groupId: group.id });
   });
@@ -640,14 +673,18 @@ function closeRound(db, group, round) {
 }
 
 function issueNewStatement(db, group, immediate = false) {
-  // pick an unused statement
+  // pick an unused statement limited by edition if group.editionId set
   const used = new Set(group.usedStatementIds || []);
-  const pool = db.statements.filter((s)=>!used.has(s.id));
+  const filterByEdition = (s) => !group.editionId || s.editionId === group.editionId;
+  const pool = db.statements.filter((s)=> filterByEdition(s) && !used.has(s.id));
   if (pool.length === 0) {
-    // all used — reset usage per group
-    group.usedStatementIds = [];
+    // all used for this edition — reset usage for this edition only
+    group.usedStatementIds = (group.usedStatementIds || []).filter((sid) => {
+      const st = db.statements.find(s=>s.id===sid);
+      return st && (!group.editionId || st.editionId !== group.editionId);
+    });
   }
-  const available = db.statements.filter((s)=>!(new Set(group.usedStatementIds)).has(s.id));
+  const available = db.statements.filter((s)=> filterByEdition(s) && !(new Set(group.usedStatementIds)).has(s.id));
   if (available.length === 0) return; // still nothing — abort
   const pick = available[Math.floor(Math.random()*available.length)];
 
@@ -661,6 +698,7 @@ function issueNewStatement(db, group, immediate = false) {
     closed: false,
     comments: [],
   };
+  group.rounds = group.rounds || [];
   group.rounds.unshift(newRound); // newest first
   // notify group members
   group.members.forEach((m)=>{
@@ -676,57 +714,138 @@ function formatUser(u) {
   return u.email;
 }
 
-// =============== Admin =======================================
-function AdminView({ db, setDb }) {
+// =============== Admin (with Editions) =======================
+function AdminView({ db, setDb, onExit }) {
   const [authed, setAuthed] = useState(false);
   const [pw, setPw] = useState("");
   const [text, setText] = useState("");
+  const [editionId, setEditionId] = useState(db.editions[0]?.id || "");
+  const [tab, setTab] = useState("statements"); // 'statements' | 'editions'
 
   if (!authed) {
     return (
       <section className="space-y-4">
         <h1 className="text-2xl font-black">Admin</h1>
-        <p className="text-sm opacity-70">Enter password to manage statements.</p>
+        <p className="text-sm opacity-70">Enter password to manage statements & editions.</p>
         <input className="w-full p-3 border-4 border-black" type="password" placeholder="Password" value={pw} onChange={(e)=>setPw(e.target.value)} />
-        <button className="w-full p-3 border-4 border-black font-bold" onClick={()=>{
-          if (pw === "XNAbaubauav1114!!!2") setAuthed(true); else alert("Incorrect password");
-        }}>Enter</button>
+        <div className="grid grid-cols-2 gap-2">
+          <button className="w-full p-3 border-4 border-black font-bold" onClick={()=>{
+            if (pw === "XNAbaubauav1114!!!2") setAuthed(true); else alert("Incorrect password");
+          }}>Enter</button>
+          <button className="w-full p-3 border-4 border-black" onClick={onExit}>Exit</button>
+        </div>
       </section>
     );
   }
 
   return (
     <section className="space-y-4">
-      <h1 className="text-2xl font-black">Admin — Statements</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-black">Admin</h1>
+        <div className="flex gap-2">
+          <button className={`px-2 py-1 border-2 border-black ${tab==="statements"?"bg-black text-white":""}`} onClick={()=>setTab("statements")}>Statements</button>
+          <button className={`px-2 py-1 border-2 border-black ${tab==="editions"?"bg-black text-white":""}`} onClick={()=>setTab("editions")}>Editions</button>
+          <button className="px-2 py-1 border-2 border-black" onClick={()=>{ setAuthed(false); setPw(""); }}>Log out</button>
+          <button className="px-2 py-1 border-2 border-black" onClick={onExit}>Exit Admin</button>
+        </div>
+      </div>
+
+      {tab === "statements" && (
+        <>
+          <div className="space-y-2">
+            <label className="block text-sm font-bold">Add new statement</label>
+            <textarea className="w-full p-3 border-4 border-black" rows={3} placeholder="Type a new statement…" value={text} onChange={(e)=>setText(e.target.value)} />
+            <label className="block text-sm font-bold">Edition</label>
+            <select className="w-full p-3 border-4 border-black" value={editionId} onChange={(e)=>setEditionId(e.target.value)}>
+              {db.editions.map(ed => <option key={ed.id} value={ed.id}>{ed.name}</option>)}
+            </select>
+            <button className="w	full p-3 border-4 border-black font-bold" onClick={()=>{
+              if (!text.trim()) return alert("Enter a statement");
+              if (!editionId) return alert("Select an edition");
+              setDb((prev)=> ({ ...prev, statements: [{ id: uid("stmt"), text: text.trim(), editionId }, ...prev.statements] }));
+              setText("");
+            }}>Add statement</button>
+          </div>
+
+          <div className="grid gap-2">
+            {db.statements.map((s)=> (
+              <div key={s.id} className="p-2 border-2 border-black">
+                <div className="font-bold">{s.text}</div>
+                <div className="text-xs opacity-70">Edition: {db.editions.find(e=>e.id===s.editionId)?.name || "—"}</div>
+                <div className="mt-2 flex gap-2">
+                  <button className="px-2 py-1 border-2 border-black" onClick={()=>{
+                    const nxt = prompt("Edit statement", s.text);
+                    if (nxt==null) return;
+                    setDb((prev)=> ({ ...prev, statements: prev.statements.map((x)=>x.id===s.id?{...x, text:nxt}:x) }));
+                  }}>Edit</button>
+                  <button className="px-2 py-1 border-2 border-black" onClick={()=>{
+                    if (!confirm("Delete statement?")) return;
+                    setDb((prev)=> ({ ...prev, statements: prev.statements.filter((x)=>x.id!==s.id) }));
+                  }}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === "editions" && (
+        <>
+          <EditionManager db={db} setDb={setDb} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function EditionManager({ db, setDb }) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+
+  return (
+    <div className="space-y-3">
       <div className="space-y-2">
-        <label className="block text-sm font-bold">Add new statement</label>
-        <textarea className="w-full p-3 border-4 border-black" rows={3} placeholder="Type a new statement…" value={text} onChange={(e)=>setText(e.target.value)} />
+        <label className="block text-sm font-bold">New edition name</label>
+        <input className="w-full p-3 border-4 border-black" value={name} onChange={(e)=>setName(e.target.value)} placeholder="e.g., Friends" />
+        <label className="block text-sm font-bold">Slug (unique)</label>
+        <input className="w-full p-3 border-4 border-black" value={slug} onChange={(e)=>setSlug(e.target.value)} placeholder="e.g., friends" />
         <button className="w-full p-3 border-4 border-black font-bold" onClick={()=>{
-          if (!text.trim()) return;
-          setDb((prev)=> ({ ...prev, statements: [{ id: uid("stmt"), text: text.trim() }, ...prev.statements] }));
-          setText("");
-        }}>Add statement</button>
+          if (!name.trim() || !slug.trim()) return alert("Fill name & slug");
+          if (db.editions.some(e=>e.slug===slug.trim())) return alert("Slug already exists");
+          const ed = { id: uid("ed"), name: name.trim(), slug: slug.trim(), active: true };
+          setDb((prev)=> ({ ...prev, editions: [ed, ...prev.editions] }));
+          setName(""); setSlug("");
+        }}>Add edition</button>
       </div>
 
       <div className="grid gap-2">
-        {db.statements.map((s)=> (
-          <div key={s.id} className="p-2 border-2 border-black">
-            <div className="font-bold">{s.text}</div>
+        {db.editions.map(ed => (
+          <div key={ed.id} className="p-2 border-2 border-black">
+            <div className="font-bold">{ed.name} <span className="text-xs opacity-70">({ed.slug})</span></div>
             <div className="mt-2 flex gap-2">
               <button className="px-2 py-1 border-2 border-black" onClick={()=>{
-                const nxt = prompt("Edit statement", s.text);
-                if (nxt==null) return;
-                setDb((prev)=> ({ ...prev, statements: prev.statements.map((x)=>x.id===s.id?{...x, text:nxt}:x) }));
-              }}>Edit</button>
+                const newName = prompt("Rename edition", ed.name);
+                if (newName==null) return;
+                setDb((prev)=> ({ ...prev, editions: prev.editions.map(x=>x.id===ed.id?{...x, name:newName}:x) }));
+              }}>Rename</button>
               <button className="px-2 py-1 border-2 border-black" onClick={()=>{
-                if (!confirm("Delete statement?")) return;
-                setDb((prev)=> ({ ...prev, statements: prev.statements.filter((x)=>x.id!==s.id) }));
+                const newSlug = prompt("Change slug", ed.slug);
+                if (newSlug==null) return;
+                if (db.editions.some(e=>e.slug===newSlug && e.id!==ed.id)) return alert("Slug already in use");
+                setDb((prev)=> ({ ...prev, editions: prev.editions.map(x=>x.id===ed.id?{...x, slug:newSlug}:x) }));
+              }}>Change slug</button>
+              <button className="px-2 py-1 border-2 border-black" onClick={()=>{
+                if (!confirm("Delete edition? Statements referencing it will remain with orphaned editionId.")) return;
+                setDb((prev)=> ({ ...prev, editions: prev.editions.filter(x=>x.id!==ed.id) }));
               }}>Delete</button>
+              <button className="px-2 py-1 border-2 border-black" onClick={()=>{
+                setDb((prev)=> ({ ...prev, editions: prev.editions.map(x=>x.id===ed.id?{...x, active:!x.active}:x) }));
+              }}>{ed.active ? "Deactivate" : "Activate"}</button>
             </div>
           </div>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
