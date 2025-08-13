@@ -146,32 +146,58 @@ export async function listGroups() {
     .from("groups")
     .select(`
       *,
-      group_members!inner(user_id),
       editions(name, slug)
     `)
-    .eq("group_members.user_id", userId)
+    .or(`owner.eq.${userId}`)
     .order("created_at", { ascending: false });
   
   if (error) throw error;
-  return data;
+  
+  // Filter groups where user is member (since we can't use group_members in RLS)
+  const { data: memberships } = await supabase
+    .from("group_members")
+    .select("group_id")
+    .eq("user_id", userId);
+  
+  const memberGroupIds = memberships?.map(m => m.group_id) || [];
+  
+  // Return groups where user is owner OR member
+  return data.filter(g => g.owner === userId || memberGroupIds.includes(g.id));
 }
 
 export async function getGroup(groupId) {
-  const { data, error } = await supabase
+  const { data: group, error } = await supabase
     .from("groups")
     .select(`
       *,
-      editions(name, slug),
-      group_members(
-        user_id,
-        profiles(id, email, first_name, last_name, image_url)
-      )
+      editions(name, slug)
     `)
     .eq("id", groupId)
     .single();
   
   if (error) throw error;
-  return data;
+  
+  // Get members using RPC function to avoid recursion
+  const { data: members, error: membersError } = await supabase
+    .rpc('get_group_members', { group_id_param: groupId });
+  
+  if (membersError && membersError.message !== 'Not a member of this group') {
+    console.error('Error fetching members:', membersError);
+  }
+  
+  // Format to match expected structure
+  group.group_members = members?.map(m => ({
+    user_id: m.user_id,
+    profiles: {
+      id: m.user_id,
+      email: m.email,
+      first_name: m.first_name,
+      last_name: m.last_name,
+      image_url: m.image_url
+    }
+  })) || [];
+  
+  return group;
 }
 
 export async function createGroup({ name, editionId }) {
@@ -204,10 +230,13 @@ export async function createGroup({ name, editionId }) {
   return group;
 }
 
+// Use RPC function to avoid recursion
 export async function addGroupMember(groupId, userId) {
   const { error } = await supabase
-    .from("group_members")
-    .insert({ group_id: groupId, user_id: userId });
+    .rpc('add_group_member', { 
+      group_id_param: groupId, 
+      user_id_param: userId 
+    });
   
   if (error && error.code !== '23505') throw error; // Ignore duplicate
   return true;
@@ -222,6 +251,15 @@ export async function removeGroupMember(groupId, userId) {
   
   if (error) throw error;
   return true;
+}
+
+// Get group members using RPC to avoid recursion
+export async function getGroupMembers(groupId) {
+  const { data, error } = await supabase
+    .rpc('get_group_members', { group_id_param: groupId });
+  
+  if (error) throw error;
+  return data;
 }
 
 /** ===================== Rounds ===================== **/
@@ -441,6 +479,6 @@ export async function joinGroupByInvite(inviteCode) {
   if (!userId) throw new Error("Not authenticated");
   
   // inviteCode is the group_id for now
-  // In production, you might want to use a separate invite_codes table
+  // Use RPC function to avoid recursion issues
   return addGroupMember(inviteCode, userId);
 }
