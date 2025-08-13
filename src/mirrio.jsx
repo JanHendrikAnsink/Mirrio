@@ -53,10 +53,43 @@ function useTicker(interval = 1000) {
 export default function Mirrio() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [view, setView] = useState(() => location.pathname === "/admin" ? "admin" : "login");
+  const [view, setView] = useState(() => location.pathname === "/admin" ? "admin" : "home");
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Set page title and meta description
+  useEffect(() => {
+    document.title = "Mirrio – Playfully understand each other better";
+    
+    // Set meta description
+    let metaDescription = document.querySelector('meta[name="description"]');
+    if (!metaDescription) {
+      metaDescription = document.createElement('meta');
+      metaDescription.name = 'description';
+      document.head.appendChild(metaDescription);
+    }
+    metaDescription.content = "Discover your strengths, quirks, and special moments together with Mirrio. Playful, anonymous, and kind – for deeper conversations, more understanding, and stronger bonds.";
+    
+    // Add global styles for cursor pointer on all buttons
+    const style = document.createElement('style');
+    style.textContent = `
+      button { cursor: pointer; }
+      input[type="radio"] { cursor: pointer; }
+      input[type="checkbox"] { cursor: pointer; }
+      select { cursor: pointer; }
+      label:has(input[type="radio"]) { cursor: pointer; }
+      label:has(input[type="checkbox"]) { cursor: pointer; }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      if (style.parentNode) {
+        style.parentNode.removeChild(style);
+      }
+    };
+  }, []);
 
   // Auth state management
   useEffect(() => {
@@ -136,6 +169,8 @@ export default function Mirrio() {
             if (location.pathname !== "/admin") setView("groups");
           } else {
             console.log('No session found');
+            // Set view to homepage for non-logged in users
+            if (location.pathname !== "/admin") setView("home");
           }
         }
       } catch (e) {
@@ -258,7 +293,74 @@ export default function Mirrio() {
         profile={profile}
         onSignOut={() => supabase.auth.signOut()}
         onGo={(v) => setView(v)}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
       />
+
+      {/* Mobile Menu Overlay */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-50 bg-white">
+          <div className="flex flex-col h-full">
+            <div className="border-b-4 border-black">
+              <div className="mx-auto max-w-md p-3 flex items-center justify-between">
+                <div className="font-black text-xl tracking-tight">MENU</div>
+                <button 
+                  className="px-2 py-1 border-2 border-black"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div className="mx-auto max-w-md w-full flex-1 p-3 space-y-2">
+              {!user ? (
+                <>
+                  <button 
+                    className="w-full p-3 border-4 border-black font-bold text-left"
+                    onClick={() => { setMenuOpen(false); setView("login"); }}
+                  >
+                    Login / Sign Up
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    className="w-full p-3 border-4 border-black font-bold text-left"
+                    onClick={() => { setMenuOpen(false); setView("groups"); }}
+                  >
+                    My Groups
+                  </button>
+                  <button 
+                    className="w-full p-3 border-4 border-black font-bold text-left"
+                    onClick={() => { setMenuOpen(false); setView("profile"); }}
+                  >
+                    Edit Profile
+                  </button>
+                  <button 
+                    className="w-full p-3 border-4 border-black font-bold text-left"
+                    onClick={() => { 
+                      setMenuOpen(false); 
+                      supabase.auth.signOut(); 
+                    }}
+                  >
+                    Sign Out
+                  </button>
+                </>
+              )}
+              
+              <div className="pt-4">
+                <button 
+                  className="w-full p-3 border-4 border-black font-bold text-left"
+                  onClick={() => { setMenuOpen(false); setView("imprint"); }}
+                >
+                  Contact and Imprint
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto w-full max-w-md p-3 pb-24">
         {error && (
@@ -267,6 +369,7 @@ export default function Mirrio() {
           </div>
         )}
 
+        {view === "home" && !user && <HomeView onGetStarted={() => setView("login")} />}
         {view === "login" && !user && <AuthView />}
         {view === "profile" && user && (
           <ProfileView user={user} profile={profile} onUpdate={() => location.reload()} />
@@ -277,11 +380,12 @@ export default function Mirrio() {
         {view === "group" && activeGroupId && user && (
           <GroupDetail groupId={activeGroupId} user={user} setView={setView} />
         )}
+        {view === "imprint" && <ImprintView onBack={() => setView(user ? "groups" : "home")} />}
         {view === "admin" && (
           <AdminView
             onExit={() => { 
               history.pushState({}, "", "/"); 
-              setView(user ? "groups" : "login"); 
+              setView(user ? "groups" : "home"); 
             }}
           />
         )}
@@ -299,7 +403,7 @@ export default function Mirrio() {
   );
 }
 
-function Header({ user, profile, onSignOut, onGo }) {
+function Header({ user, profile, onSignOut, onGo, menuOpen, setMenuOpen }) {
   const displayName = profile ? 
     `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || user?.email : 
     user?.email;
@@ -307,12 +411,18 @@ function Header({ user, profile, onSignOut, onGo }) {
   return (
     <header className="sticky top-0 z-10 bg-white border-b-4 border-black">
       <div className="mx-auto max-w-md flex items-center justify-between p-3">
-        <div className="font-black text-xl tracking-tight">MIRRIO</div>
-        {user && (
-          <div className="flex items-center gap-2">
-            <button className="px-2 py-1 border-2 border-black" onClick={() => onGo("groups")}>Groups</button>
-          </div>
-        )}
+        <button 
+          className="font-black text-xl tracking-tight cursor-pointer"
+          onClick={() => onGo(user ? "groups" : "home")}
+        >
+          MIRRIO
+        </button>
+        <button 
+          className="px-2 py-1 border-2 border-black cursor-pointer"
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          ☰
+        </button>
       </div>
       {user && (
         <div className="mx-auto max-w-md px-3 pb-2 flex items-center gap-3">
@@ -321,9 +431,6 @@ function Header({ user, profile, onSignOut, onGo }) {
             <div className="font-bold leading-tight">{displayName}</div>
             <div className="opacity-70">{user.email}</div>
           </div>
-          <div className="flex-1" />
-          <button className="px-2 py-1 border-2 border-black" onClick={() => onGo("profile")}>Profile</button>
-          <button className="px-2 py-1 border-2 border-black" onClick={onSignOut}>Sign out</button>
         </div>
       )}
     </header>
@@ -452,7 +559,8 @@ function AuthView() {
         {mode === "login" && (
           <>
             <button
-              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#fed89e' }}
               disabled={loading}
               onClick={() => handleEmailPassword(false)}
             >
@@ -460,14 +568,16 @@ function AuthView() {
             </button>
             <div className="flex gap-2">
               <button
-                className="flex-1 p-3 border-4 border-black disabled:opacity-60"
+                className="flex-1 p-3 border-4 border-black disabled:opacity-60 hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: '#d8e1fc' }}
                 disabled={loading}
                 onClick={() => setMode("magic")}
               >
                 Use Magic Link
               </button>
               <button
-                className="flex-1 p-3 border-4 border-black disabled:opacity-60"
+                className="flex-1 p-3 border-4 border-black disabled:opacity-60 hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: '#dce7d0' }}
                 disabled={loading}
                 onClick={() => setMode("signup")}
               >
@@ -480,14 +590,16 @@ function AuthView() {
         {mode === "signup" && (
           <>
             <button
-              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#dce7d0' }}
               disabled={loading}
               onClick={() => handleEmailPassword(true)}
             >
               {loading ? "Creating account..." : "Create account"}
             </button>
             <button
-              className="w-full p-3 border-4 border-black disabled:opacity-60"
+              className="w-full p-3 border-4 border-black disabled:opacity-60 hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#d8e1fc' }}
               disabled={loading}
               onClick={() => setMode("login")}
             >
@@ -499,14 +611,16 @@ function AuthView() {
         {mode === "magic" && (
           <>
             <button
-              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#fed89e' }}
               disabled={loading}
               onClick={handleMagicLink}
             >
               {loading ? "Sending..." : "Send Magic Link"}
             </button>
             <button
-              className="w-full p-3 border-4 border-black disabled:opacity-60"
+              className="w-full p-3 border-4 border-black disabled:opacity-60 hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#d8e1fc' }}
               disabled={loading}
               onClick={() => setMode("login")}
             >
@@ -533,7 +647,6 @@ function ProfileView({ user, profile, onUpdate }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
 
   async function onPick(e) {
     const file = e.target.files?.[0];
@@ -637,7 +750,8 @@ function ProfileView({ user, profile, onUpdate }) {
           onChange={onPick} 
         />
         <button 
-          className="w-full p-3 border-4 border-black font-bold disabled:opacity-60" 
+          className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity" 
+          style={{ backgroundColor: '#d8e1fc' }}
           onClick={handleSave}
           disabled={saving}
         >
@@ -683,7 +797,7 @@ function ProfileView({ user, profile, onUpdate }) {
               onChange={(e) => setConfirmPassword(e.target.value)} 
             />
             <button 
-              className="w-full p-3 border-4 border-black font-bold bg-black text-white disabled:opacity-60" 
+              className="w-full p-3 border-4 border-black font-bold bg-black text-white disabled:opacity-60 hover:opacity-90 transition-opacity" 
               onClick={handlePasswordSet}
               disabled={passwordSaving}
             >
@@ -759,50 +873,7 @@ function GroupsView({ user, setView, setActiveGroupId }) {
     <section className="space-y-4">
       <h1 className="text-2xl font-black">Your groups</h1>
 
-      <div className="space-y-2">
-        <label className="block text-sm font-bold">Create a new group</label>
-        <input 
-          className="w-full p-3 border-4 border-black" 
-          placeholder="Group name" 
-          value={name} 
-          onChange={(e) => setName(e.target.value)} 
-        />
-        
-        {editions.length > 0 && (
-          <>
-            <label className="block text-sm font-bold">Select Edition</label>
-            <select
-              className="w-full p-3 border-4 border-black"
-              value={selectedEditionId}
-              onChange={(e) => setSelectedEditionId(e.target.value)}
-            >
-              {editions.map(ed => (
-                <option key={ed.id} value={ed.id}>
-                  {ed.name} {ed.slug ? `(${ed.slug})` : ''}
-                </option>
-              ))}
-            </select>
-            <div className="text-xs opacity-70">
-              The edition determines which statements your group will use. This cannot be changed later.
-            </div>
-          </>
-        )}
-        
-        <button
-          className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
-          onClick={handleCreateGroup}
-          disabled={creating || editions.length === 0}
-        >
-          {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
-        </button>
-        
-        {editions.length === 0 && (
-          <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
-            No active editions available. Please contact the admin to create editions.
-          </div>
-        )}
-      </div>
-
+      {/* Groups List */}
       <div className="grid gap-3">
         {groups.map(g => (
           <div key={g.id} className="p-3 border-4 border-black">
@@ -817,7 +888,8 @@ function GroupsView({ user, setView, setActiveGroupId }) {
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button 
-                className="p-2 border-2 border-black" 
+                className="p-2 border-2 border-black hover:opacity-90 transition-opacity" 
+                style={{ backgroundColor: '#d8e1fc' }}
                 onClick={() => { 
                   setActiveGroupId(g.id); 
                   setView("group"); 
@@ -835,6 +907,55 @@ function GroupsView({ user, setView, setActiveGroupId }) {
           </p>
         )}
       </div>
+
+      {/* Separator */}
+      <div className="border-t-4 border-black pt-3">
+        {/* Create Group Form */}
+        <div className="space-y-2">
+          <label className="block text-sm font-bold">Create a new group</label>
+          <input 
+            className="w-full p-3 border-4 border-black" 
+            placeholder="Group name" 
+            value={name} 
+            onChange={(e) => setName(e.target.value)} 
+          />
+          
+          {editions.length > 0 && (
+            <>
+              <label className="block text-sm font-bold">Select Edition</label>
+              <select
+                className="w-full p-3 border-4 border-black"
+                value={selectedEditionId}
+                onChange={(e) => setSelectedEditionId(e.target.value)}
+              >
+                {editions.map(ed => (
+                  <option key={ed.id} value={ed.id}>
+                    {ed.name} {ed.slug ? `(${ed.slug})` : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="text-xs opacity-70">
+                The edition determines which statements your group will use. This cannot be changed later.
+              </div>
+            </>
+          )}
+          
+          <button
+            className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: '#dce7d0' }}
+            onClick={handleCreateGroup}
+            disabled={creating || editions.length === 0}
+          >
+            {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
+          </button>
+          
+          {editions.length === 0 && (
+            <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
+              No active editions available. Please contact the admin to create editions.
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -846,14 +967,15 @@ function InviteButton({ groupId }) {
 
   return (
     <button 
-      className="p-2 border-2 border-black" 
+      className="p-2 border-2 border-black hover:opacity-90 transition-opacity" 
+      style={{ backgroundColor: '#fed89e' }}
       onClick={() => {
         navigator.clipboard.writeText(inviteURL);
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
     >
-      {copied ? "Link copied" : "Copy invite"}
+      {copied ? "Link copied" : "Invite member"}
     </button>
   );
 }
@@ -1139,7 +1261,8 @@ function VotePanel({ round, group, user, onVoted }) {
           <span className="font-bold">Abstain</span>
         </label>
         <button 
-          className="p-2 border-2 border-black font-bold disabled:opacity-60" 
+          className="p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: '#d8e1fc' }}
           onClick={handleSubmit}
           disabled={submitting}
         >
@@ -1248,6 +1371,143 @@ function RoundHistoryItem({ round, user, onComment }) {
         </>
       )}
     </div>
+  );
+}
+
+// Homepage for non-logged in users
+function HomeView({ onGetStarted }) {
+  return (
+    <section className="space-y-6">
+      <div className="text-center py-8">
+        <h1 className="text-4xl font-black">
+          A game that shows who you are.
+        </h1>
+      </div>
+
+      <div className="space-y-4">
+        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#d8e1fc' }}>
+          <div className="flex items-start gap-3">
+            <span className="font-black text-xl">1.</span>
+            <div>
+              <strong>Join a group</strong> with friends, family, or your partner.
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#dce7d0' }}>
+          <div className="flex items-start gap-3">
+            <span className="font-black text-xl">2.</span>
+            <div>
+              <strong>Read a statement</strong> like <em>"Who loves hugs the most?"</em>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#ffd4e5' }}>
+          <div className="flex items-start gap-3">
+            <span className="font-black text-xl">3.</span>
+            <div>
+              <strong>Vote anonymously</strong> on who it fits best.
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-4 border-black" style={{ backgroundColor: '#fed89e' }}>
+          <div className="flex items-start gap-3">
+            <span className="font-black text-xl">4.</span>
+            <div>
+              <strong>See the results</strong>, laugh, and talk about them.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="text-center space-y-4 py-6">
+        <p className="text-lg">
+          Each round is quick. Each answer is a{' '}
+          <strong style={{ backgroundColor: '#ffd4e5', padding: '2px 4px' }}>surprise</strong>.{' '}
+          Each point brings you closer.
+        </p>
+        
+        <p className="text-lg font-bold">
+          With Mirrio, you hold up a mirror –{' '}
+          <span style={{ backgroundColor: '#d8e1fc', padding: '2px 4px' }}>playfully</span>,{' '}
+          <span style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>lovingly</span>,{' '}
+          <span style={{ backgroundColor: '#ffe4cc', padding: '2px 4px' }}>together</span>.
+        </p>
+      </div>
+
+      <button
+        className="w-full p-4 border-4 border-black font-bold text-lg hover:opacity-90 transition-opacity"
+        style={{ backgroundColor: '#fed89e' }}
+        onClick={onGetStarted}
+      >
+        Let's open a group →
+      </button>
+    </section>
+  );
+}
+
+// Imprint/Contact Page
+function ImprintView({ onBack }) {
+  return (
+    <section className="space-y-6">
+      <div className="flex items-center gap-2">
+        <button 
+          className="px-2 py-1 border-2 border-black"
+          onClick={onBack}
+        >
+          ← Back
+        </button>
+        <h1 className="text-2xl font-black">Contact & Imprint</h1>
+      </div>
+
+      <div className="space-y-4">
+        {/* English Version */}
+        <div className="p-4 border-4 border-black">
+          <h2 className="font-bold text-lg mb-2">Contact (English)</h2>
+          <p className="mb-2">We'd love to hear from you.</p>
+          <p className="mb-2">Got feedback, questions, or just want to say hi? Drop us a line anytime.</p>
+          <div className="text-sm space-y-1">
+            <div><strong>Email:</strong> hello@mirrio.app</div>
+            <div><strong>Name:</strong> Jan Hendrik Ansink</div>
+            <div><strong>Location:</strong> Berlin, Germany</div>
+          </div>
+        </div>
+
+        <div className="p-4 border-4 border-black">
+          <h2 className="font-bold text-lg mb-2">Imprint (English)</h2>
+          <p className="mb-2">Responsible for the content according to § 5 TMG</p>
+          <div className="text-sm space-y-1">
+            <div>Jan Hendrik Ansink</div>
+            <div>Berlin, Germany</div>
+            <div><strong>Email:</strong> hello@mirrio.app</div>
+          </div>
+        </div>
+
+        {/* German Version */}
+        <div className="p-4 border-4 border-black bg-gray-50">
+          <h2 className="font-bold text-lg mb-2">Kontakt (Deutsch)</h2>
+          <p className="mb-2">Wir freuen uns auf deine Nachricht.</p>
+          <p className="mb-2">Hast du Feedback, Fragen oder einfach Lust auf ein Hallo? Schreib uns jederzeit.</p>
+          <div className="text-sm space-y-1">
+            <div><strong>E-Mail:</strong> hello@mirrio.app</div>
+            <div><strong>Name:</strong> Jan Hendrik Ansink</div>
+            <div><strong>Ort:</strong> Berlin, Deutschland</div>
+          </div>
+        </div>
+
+        <div className="p-4 border-4 border-black bg-gray-50">
+          <h2 className="font-bold text-lg mb-2">Impressum (Deutsch)</h2>
+          <p className="mb-2">Verantwortlich für den Inhalt gemäß § 5 TMG</p>
+          <div className="text-sm space-y-1">
+            <div>Jan Hendrik Ansink</div>
+            <div>Berlin, Deutschland</div>
+            <div><strong>E-Mail:</strong> hello@mirrio.app</div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
