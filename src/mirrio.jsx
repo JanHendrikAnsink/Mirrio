@@ -287,7 +287,14 @@ export default function Mirrio() {
         )}
       </main>
 
-      {import.meta.env.PROD && (<><Analytics /><SpeedInsights /></>)}
+      {/* Temporär deaktiviert wegen Kompatibilitätsproblemen mit React 19
+      {import.meta.env.PROD && (
+        <>
+          <Analytics debug={false} />
+          <SpeedInsights debug={false} />
+        </>
+      )}
+      */}
     </div>
   );
 }
@@ -570,18 +577,24 @@ function ProfileView({ user, profile, onUpdate }) {
 
     setPasswordSaving(true);
     try {
-      const { error } = await supabase.auth.updateUser({
+      const { data, error } = await supabase.auth.updateUser({
         password: newPassword
       });
       
       if (error) throw error;
       
-      alert("✅ Password set successfully! You can now login with your email and password.");
+      // Verwende setTimeout um sicherzustellen, dass der Alert angezeigt wird
+      setTimeout(() => {
+        alert("✅ Password successfully updated!\n\nYou can now sign in with your email and password.");
+      }, 100);
+      
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswordSection(false);
     } catch (e) {
-      alert("❌ Error setting password: " + e.message);
+      setTimeout(() => {
+        alert("❌ Error setting password:\n\n" + e.message);
+      }, 100);
     } finally {
       setPasswordSaving(false);
     }
@@ -645,6 +658,13 @@ function ProfileView({ user, profile, onUpdate }) {
             <div className="text-sm opacity-70 mb-2">
               Set a password to enable email/password login in addition to magic links.
             </div>
+            
+            {passwordMessage.text && (
+              <div className={`p-2 border-2 ${passwordMessage.type === 'success' ? 'border-green-600 bg-green-50 text-green-800' : 'border-red-600 bg-red-50 text-red-700'} text-sm font-bold`}>
+                {passwordMessage.text}
+              </div>
+            )}
+            
             <label className="block text-sm font-bold">New Password</label>
             <input 
               className="w-full p-3 border-4 border-black" 
