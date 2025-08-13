@@ -298,76 +298,81 @@ export default function Mirrio() {
       />
 
       {/* Mobile Menu Overlay */}
-      {menuOpen && (
-        <div className="fixed inset-0 z-50 bg-white">
-          <div className="flex flex-col h-full">
-            <div className="border-b-4 border-black">
-              <div className="mx-auto max-w-md p-3 flex items-center justify-between">
-                <div className="font-black text-xl tracking-tight">MENU</div>
-                <button 
-                  className="px-2 py-1 border-2 border-black"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            
-            <div className="mx-auto max-w-md w-full flex-1 p-3 space-y-2">
-              {!user ? (
-                <>
-                  <button 
-                    className="w-full p-3 border-4 border-black font-bold text-left"
-                    onClick={() => { setMenuOpen(false); setView("login"); }}
-                  >
-                    Login / Sign Up
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button 
-                    className="w-full p-3 border-4 border-black font-bold text-left"
-                    onClick={() => { setMenuOpen(false); setView("groups"); }}
-                  >
-                    My Groups
-                  </button>
-                  <button 
-                    className="w-full p-3 border-4 border-black font-bold text-left"
-                    onClick={() => { setMenuOpen(false); setView("profile"); }}
-                  >
-                    Edit Profile
-                  </button>
-                  <button 
-                    className="w-full p-3 border-4 border-black font-bold text-left"
-                    onClick={() => { 
-                      setMenuOpen(false); 
-                      supabase.auth.signOut(); 
-                    }}
-                  >
-                    Sign Out
-                  </button>
-                </>
-              )}
-              <div className="pt-4">
-                <button 
-                  className="w-full p-3 border-4 border-black font-bold text-left"
-                  onClick={() => { setMenuOpen(false); setView("support"); }}
-                >
-                  Send money
-                </button>
-              </div>
-              <div className="pt-4">
-                <button 
-                  className="w-full p-3 border-4 border-black font-bold text-left"
-                  onClick={() => { setMenuOpen(false); setView("imprint"); }}
-                >
-                  Contact and Imprint
-                </button>
-              </div>
-            </div>
-          </div>
+{menuOpen && (
+  <div className="fixed inset-0 z-50 bg-white">
+    <div className="flex flex-col h-full">
+      <div className="border-b-4 border-black">
+        <div className="mx-auto max-w-md p-3 flex items-center justify-between">
+          <div className="font-black text-xl tracking-tight">MENU</div>
+          <button 
+            className="px-2 py-1 border-2 border-black"
+            onClick={() => setMenuOpen(false)}
+          >
+            ✕
+          </button>
         </div>
-      )}
+      </div>
+      
+      <div className="mx-auto max-w-md w-full flex-1 p-3 space-y-2">
+        {!user ? (
+          <>
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              onClick={() => { setMenuOpen(false); setView("login"); }}
+            >
+              Login / Sign Up
+            </button>
+            <div className="pt-4">
+              <button 
+                className="w-full p-3 border-4 border-black font-bold text-left"
+                onClick={() => { setMenuOpen(false); setView("imprint"); }}
+              >
+                Contact and Imprint
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Hauptmenü für eingeloggte Nutzer */}
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              onClick={() => { setMenuOpen(false); setView("groups"); }}
+            >
+              My Groups
+            </button>
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              onClick={() => { setMenuOpen(false); setView("profile"); }}
+            >
+              Edit Profile
+            </button>
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              onClick={() => { setMenuOpen(false); setView("support"); }}
+            >
+              Made a donation
+            </button>
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              onClick={() => { setMenuOpen(false); setView("imprint"); }}
+            >
+              Contact and Imprint
+            </button>
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              onClick={() => { 
+                setMenuOpen(false); 
+                supabase.auth.signOut(); 
+              }}
+            >
+              Sign Out
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
       <main className="mx-auto w-full max-w-md p-3 pb-24">
         {error && (
@@ -1473,7 +1478,7 @@ function SupportView({ onBack }) {
         >
           ← Back
         </button>
-        <h1 className="text-2xl font-black">Keep me motivated</h1>
+        <h1 className="text-2xl font-black">Made a donation</h1>
       </div>
 
       <div className="space-y-6">
@@ -1515,15 +1520,15 @@ function SupportView({ onBack }) {
           <h3 className="font-bold text-lg mb-4">Choose your contribution</h3>
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <span className="font-black text-xl" style={{ backgroundColor: '#d8e1fc', padding: '2px 8px' }}>5 €</span>
+              <span className="font-black text-xl whitespace-nowrap" style={{ backgroundColor: '#d8e1fc', padding: '2px 8px' }}>5 €</span>
               <span>— like <strong>two beers</strong> with friends.</span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="font-black text-xl" style={{ backgroundColor: '#dce7d0', padding: '2px 8px' }}>10 €</span>
+              <span className="font-black text-xl whitespace-nowrap" style={{ backgroundColor: '#dce7d0', padding: '2px 8px' }}>10 €</span>
               <span>— a simple <strong>lunch</strong> that fuels a day of work.</span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="font-black text-xl" style={{ backgroundColor: '#ffd4e5', padding: '2px 8px' }}>50 €</span>
+              <span className="font-black text-xl whitespace-nowrap" style={{ backgroundColor: '#ffd4e5', padding: '2px 8px' }}>50 €</span>
               <span>— about <strong>one month of software licenses</strong>.</span>
             </div>
           </div>
@@ -1548,7 +1553,7 @@ function SupportView({ onBack }) {
               href="https://www.paypal.me/janansink/5"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity"
+              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity whitespace-nowrap"
               style={{ backgroundColor: '#d8e1fc' }}
             >
               5 €
@@ -1558,7 +1563,7 @@ function SupportView({ onBack }) {
               href="https://www.paypal.me/janansink/10"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity"
+              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity whitespace-nowrap"
               style={{ backgroundColor: '#dce7d0' }}
             >
               10 €
@@ -1568,7 +1573,7 @@ function SupportView({ onBack }) {
               href="https://www.paypal.me/janansink/25"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity"
+              className="px-3 py-1 border-2 border-black text-sm hover:opacity-90 transition-opacity whitespace-nowrap"
               style={{ backgroundColor: '#ffd4e5' }}
             >
               25 €
