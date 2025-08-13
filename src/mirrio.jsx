@@ -224,58 +224,179 @@ function Avatar({ img, label, size = 40 }) {
 }
 
 function AuthView() {
-  const [step, setStep] = useState("email");
+  const [mode, setMode] = useState("login"); // login, signup, magic
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [sentTo, setSentTo] = useState(null);
-  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(false);
   const redirectBase = import.meta.env.DEV ? "http://localhost:5173" : "https://mirrio.app";
+
+  async function handleEmailPassword(isSignup) {
+    if (!email.includes("@")) return alert("Enter a valid email");
+    if (password.length < 6) return alert("Password must be at least 6 characters");
+    
+    setLoading(true);
+    try {
+      if (isSignup) {
+        const { error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            emailRedirectTo: redirectBase
+          }
+        });
+        if (error) throw error;
+        alert("Account created! Please check your email to verify your account.");
+        setMode("login");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        });
+        if (error) throw error;
+      }
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleMagicLink() {
+    if (!email.includes("@")) return alert("Enter a valid email");
+    
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: redirectBase },
+      });
+      if (error) throw error;
+      setSentTo(email.trim());
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (sentTo) {
+    return (
+      <section className="space-y-4">
+        <h1 className="text-2xl font-black">Check your email</h1>
+        <div className="p-3 border-4 border-black bg-black text-white text-sm break-all">
+          We sent a magic link to <b>{sentTo}</b>. Click it to sign in.
+        </div>
+        <button 
+          className="block w-full p-3 border-4 border-black text-center font-bold" 
+          onClick={() => { setSentTo(null); setMode("login"); }}
+        >
+          Back to login
+        </button>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-4">
-      <h1 className="text-2xl font-black">Sign in</h1>
-      {step === "email" && (
-        <div className="space-y-2">
-          <label className="block text-sm font-bold">E-mail</label>
-          <input 
-            className="w-full p-3 border-4 border-black" 
-            placeholder="you@example.com" 
-            value={email} 
-            onChange={(e) => setEmail(e.target.value)} 
-          />
-          <button
-            className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
-            disabled={sending}
-            onClick={async () => {
-              if (!email.includes("@")) return alert("Enter a valid email");
-              setSending(true);
-              const { error } = await supabase.auth.signInWithOtp({
-                email: email.trim(),
-                options: { emailRedirectTo: redirectBase },
-              });
-              setSending(false);
-              if (error) return alert(error.message);
-              setSentTo(email.trim());
-              setStep("sent");
-            }}
-          >
-            {sending ? "Sending…" : "Send Magic Link"}
-          </button>
-          <p className="text-xs opacity-70">We'll e-mail you a secure sign-in link.</p>
-        </div>
-      )}
-      {step === "sent" && (
-        <div className="space-y-3">
-          <div className="p-3 border-4 border-black bg-black text-white text-sm break-all">
-            We sent a link to <b>{sentTo}</b>. Check your inbox and click it.
-          </div>
-          <button 
-            className="block w-full p-3 border-4 border-black text-center font-bold" 
-            onClick={() => setStep("email")}
-          >
-            Use a different e-mail
-          </button>
-        </div>
-      )}
+      <h1 className="text-2xl font-black">
+        {mode === "signup" ? "Create account" : "Sign in"}
+      </h1>
+      
+      <div className="space-y-2">
+        <label className="block text-sm font-bold">Email</label>
+        <input 
+          className="w-full p-3 border-4 border-black" 
+          type="email"
+          placeholder="you@example.com" 
+          value={email} 
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && mode !== 'magic' && handleEmailPassword(mode === 'signup')}
+        />
+        
+        {mode !== "magic" && (
+          <>
+            <label className="block text-sm font-bold">Password</label>
+            <input 
+              className="w-full p-3 border-4 border-black" 
+              type="password"
+              placeholder="••••••••" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleEmailPassword(mode === 'signup')}
+            />
+          </>
+        )}
+
+        {mode === "login" && (
+          <>
+            <button
+              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+              disabled={loading}
+              onClick={() => handleEmailPassword(false)}
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </button>
+            <div className="flex gap-2">
+              <button
+                className="flex-1 p-3 border-4 border-black disabled:opacity-60"
+                disabled={loading}
+                onClick={() => setMode("magic")}
+              >
+                Use Magic Link
+              </button>
+              <button
+                className="flex-1 p-3 border-4 border-black disabled:opacity-60"
+                disabled={loading}
+                onClick={() => setMode("signup")}
+              >
+                Create account
+              </button>
+            </div>
+          </>
+        )}
+
+        {mode === "signup" && (
+          <>
+            <button
+              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+              disabled={loading}
+              onClick={() => handleEmailPassword(true)}
+            >
+              {loading ? "Creating account..." : "Create account"}
+            </button>
+            <button
+              className="w-full p-3 border-4 border-black disabled:opacity-60"
+              disabled={loading}
+              onClick={() => setMode("login")}
+            >
+              Already have an account? Sign in
+            </button>
+          </>
+        )}
+
+        {mode === "magic" && (
+          <>
+            <button
+              className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+              disabled={loading}
+              onClick={handleMagicLink}
+            >
+              {loading ? "Sending..." : "Send Magic Link"}
+            </button>
+            <button
+              className="w-full p-3 border-4 border-black disabled:opacity-60"
+              disabled={loading}
+              onClick={() => setMode("login")}
+            >
+              Back to password login
+            </button>
+            <p className="text-xs opacity-70">
+              We'll email you a secure sign-in link.
+            </p>
+          </>
+        )}
+      </div>
     </section>
   );
 }
@@ -1079,6 +1200,8 @@ function AdminView({ onExit }) {
 
 function AdminInlineLogin({ redirectBase }) {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [usePassword, setUsePassword] = useState(true);
   const [sending, setSending] = useState(false);
   
   return (
@@ -1090,26 +1213,60 @@ function AdminInlineLogin({ redirectBase }) {
         value={email} 
         onChange={(e) => setEmail(e.target.value)} 
       />
+      
+      {usePassword && (
+        <>
+          <label className="block text-sm font-bold">Password</label>
+          <input 
+            className="w-full p-3 border-4 border-black" 
+            type="password"
+            placeholder="••••••••" 
+            value={password} 
+            onChange={(e) => setPassword(e.target.value)} 
+          />
+        </>
+      )}
+      
       <button
         className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
         disabled={sending}
         onClick={async () => {
           if (!email.includes("@")) return alert("Enter a valid email");
           setSending(true);
-          const { error } = await supabase.auth.signInWithOtp({
-            email: email.trim(),
-            options: { emailRedirectTo: redirectBase },
-          });
-          setSending(false);
-          if (error) return alert(error.message);
-          alert("Magic link sent. Please open it and return to /admin.");
+          
+          try {
+            if (usePassword) {
+              if (!password) return alert("Enter password");
+              const { error } = await supabase.auth.signInWithPassword({
+                email: email.trim(),
+                password
+              });
+              if (error) throw error;
+              location.reload();
+            } else {
+              const { error } = await supabase.auth.signInWithOtp({
+                email: email.trim(),
+                options: { emailRedirectTo: redirectBase + "/admin" },
+              });
+              if (error) throw error;
+              alert("Magic link sent. Please open it and return to /admin.");
+            }
+          } catch (error) {
+            alert(error.message);
+          } finally {
+            setSending(false);
+          }
         }}
       >
-        {sending ? "Sending…" : "Send Magic Link"}
+        {sending ? "Loading..." : (usePassword ? "Sign in" : "Send Magic Link")}
       </button>
-      <div className="text-xs opacity-70">
-        After clicking the link, return to <code>/admin</code>.
-      </div>
+      
+      <button
+        className="w-full p-2 text-sm underline"
+        onClick={() => setUsePassword(!usePassword)}
+      >
+        {usePassword ? "Use Magic Link instead" : "Use Password instead"}
+      </button>
     </div>
   );
 }
