@@ -1249,81 +1249,6 @@ function GroupDetail({ groupId, user, setView }) {
         </span>
       </div>
 
-      {/* Group Management Section - nur für Owner */}
-      {isOwner && (
-        <div className="p-3 border-4 border-black bg-gray-50">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-bold">Gruppenverwaltung</div>
-            <button
-              className="text-sm underline"
-              onClick={() => setShowManagement(!showManagement)}
-            >
-              {showManagement ? "Ausblenden" : "Anzeigen"}
-            </button>
-          </div>
-          
-          {showManagement && (
-            <div className="space-y-3 mt-3">
-              {/* Gruppe umbenennen */}
-              <div>
-                <div className="text-sm font-bold mb-1">Gruppe umbenennen</div>
-                {editingName ? (
-                  <div className="flex gap-2">
-                    <input
-                      className="flex-1 p-2 border-2 border-black"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      placeholder="Neuer Gruppenname"
-                    />
-                    <button
-                      className="px-3 py-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
-                      style={{ backgroundColor: '#d8e1fc' }}
-                      onClick={handleRenameGroup}
-                      disabled={saving}
-                    >
-                      {saving ? "..." : "Speichern"}
-                    </button>
-                    <button
-                      className="px-3 py-2 border-2 border-black"
-                      onClick={() => {
-                        setEditingName(false);
-                        setNewGroupName(group.name);
-                      }}
-                    >
-                      Abbrechen
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="w-full p-2 border-2 border-black hover:opacity-90 transition-opacity"
-                    style={{ backgroundColor: '#d8e1fc' }}
-                    onClick={() => setEditingName(true)}
-                  >
-                    Umbenennen
-                  </button>
-                )}
-              </div>
-              
-              {/* Gruppe löschen */}
-              <div>
-                <div className="text-sm font-bold mb-1 text-red-600">Gefahrenzone</div>
-                <button
-                  className="w-full p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
-                  style={{ backgroundColor: '#ffcccc' }}
-                  onClick={handleDeleteGroup}
-                  disabled={deleting}
-                >
-                  {deleting ? "Lösche..." : "Gruppe löschen"}
-                </button>
-                <div className="text-xs opacity-70 mt-1">
-                  Diese Aktion löscht alle Rounds, Votes, Kommentare und Punkte dauerhaft.
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Active Round or Start Button */}
       {!activeRound ? (
         <div className="p-3 border-4 border-black bg-yellow-200">
@@ -1425,6 +1350,86 @@ function GroupDetail({ groupId, user, setView }) {
           <InviteButton groupId={groupId} />
         </div>
       </div>
+
+      {/* Group Management Section - nur für Owner, ganz unten mit Trenner */}
+      {isOwner && (
+        <>
+          <div className="border-t-4 border-black"></div>
+          <div className="p-3 border-4 border-black bg-gray-50">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-bold">Gruppenverwaltung</div>
+              <button
+                className="text-sm underline"
+                onClick={() => setShowManagement(!showManagement)}
+              >
+                {showManagement ? "Ausblenden" : "Anzeigen"}
+              </button>
+            </div>
+            
+            {showManagement && (
+              <div className="space-y-3 mt-3">
+                {/* Gruppe umbenennen */}
+                <div>
+                  <div className="text-sm font-bold mb-1">Gruppe umbenennen</div>
+                  {editingName ? (
+                    <div className="space-y-2">
+                      <input
+                        className="w-full p-2 border-2 border-black"
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder="Neuer Gruppenname"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          className="flex-1 p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+                          style={{ backgroundColor: '#d8e1fc' }}
+                          onClick={handleRenameGroup}
+                          disabled={saving}
+                        >
+                          {saving ? "Speichere..." : "Speichern"}
+                        </button>
+                        <button
+                          className="flex-1 p-2 border-2 border-black hover:opacity-90 transition-opacity"
+                          onClick={() => {
+                            setEditingName(false);
+                            setNewGroupName(group.name);
+                          }}
+                        >
+                          Abbrechen
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className="w-full p-2 border-2 border-black hover:opacity-90 transition-opacity"
+                      style={{ backgroundColor: '#d8e1fc' }}
+                      onClick={() => setEditingName(true)}
+                    >
+                      Umbenennen
+                    </button>
+                  )}
+                </div>
+                
+                {/* Gruppe löschen */}
+                <div>
+                  <div className="text-sm font-bold mb-1 text-red-600">Gefahrenzone</div>
+                  <button
+                    className="w-full p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+                    style={{ backgroundColor: '#ffcccc' }}
+                    onClick={handleDeleteGroup}
+                    disabled={deleting}
+                  >
+                    {deleting ? "Lösche..." : "Gruppe löschen"}
+                  </button>
+                  <div className="text-xs opacity-70 mt-1">
+                    Diese Aktion löscht alle Rounds, Votes, Kommentare und Punkte dauerhaft.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }
