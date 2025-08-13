@@ -1,11 +1,12 @@
-// src/mirrio.jsx — Editions integrated with Supabase (RPC for statements), minimal changes
+// src/mirrio.jsx — Admin CRUD for Editions & Statements + Supabase RPC for statements
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 import {
-  listEditions, listStatements,
+  listEditions, createEdition, renameEdition, changeEditionSlug, toggleEditionActive, deleteEdition,
+  listStatements, createStatement, updateStatementText, deleteStatement,
   rpcNextStatementForGroup, markStatementUsed, getUserId
 } from "./lib/supaApi";
 
@@ -21,13 +22,12 @@ function uid(prefix = "id") {
 function createEmptyDB() {
   return {
     users: {},
-    groups: {}, // id -> { id, supabaseId?, name, ownerEmail, members, rounds, leaderboard, usedStatementIds, nextIssueAt, editionId }
-    statements: [], // local cache (optional)
+    groups: {},
+    statements: [],
     notifications: {},
     editions: [],
   };
 }
-
 function loadDB() {
   try {
     const raw = localStorage.getItem(DB_KEY);
@@ -93,7 +93,7 @@ export default function Mirrio() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Handle magic-link hash errors
+  // Hash error
   useEffect(() => {
     if (location.hash && location.hash.includes("error=")) {
       const p = new URLSearchParams(location.hash.slice(1));
@@ -107,59 +107,18 @@ export default function Mirrio() {
   useEffect(() => saveDB(db), [db]);
   useTicker(1000);
 
-  // Load editions/statements from Supabase after login (read-only cache)
+  // Load editions on login
   useEffect(() => {
     (async () => {
       if (!email) return;
       try {
         const eds = await listEditions();
         setDb(prev => ({ ...prev, editions: eds }));
-        if (eds[0]?.id) {
-          const sts = await listStatements({ editionId: eds[0].id });
-          setDb(prev => ({ ...prev, statements: sts.map(s => ({ id: s.id, text: s.text, editionId: s.edition_id })) }));
-        }
       } catch (e) {
-        console.error("Loading editions/statements failed:", e);
+        console.error("Loading editions failed:", e);
       }
     })();
   }, [email]);
-
-  // Invite auto-join (local membership)
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const invite = url.searchParams.get("invite");
-    if (invite && email) {
-      setDb(prev => {
-        const copy = structuredClone(prev);
-        const g = copy.groups[invite];
-        if (g && !g.members.includes(email)) {
-          g.members.push(email);
-          dbAddNotification(copy, email, { text: `You joined group “${g.name}”.`, groupId: g.id });
-        }
-        return copy;
-      });
-      url.searchParams.delete("invite");
-      history.replaceState({}, "", url.toString());
-      setActiveGroupId(invite);
-      setView("group");
-    }
-  }, [email]);
-
-  // Auto close
-  useEffect(() => {
-    const id = setInterval(() => {
-      setDb(prev => {
-        const copy = structuredClone(prev);
-        const t = now();
-        Object.values(copy.groups).forEach(g => {
-          const active = (g.rounds || []).find(r => !r.closed);
-          if (active && t >= active.expiresAt) closeRound(copy, g, active);
-        });
-        return copy;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
 
   const me = email ? db.users[email] : null;
 
@@ -336,12 +295,12 @@ function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
           onClick={async ()=>{
             if (!name.trim()) return alert("Name required");
             try {
-              const editionId = db.editions[0]?.id; // simple default – can add picker later
+              const editionId = db.editions[0]?.id; // simple default
               if (!editionId) return alert("No edition available. Please add one in Admin.");
               const userId = await getUserId();
               if (!userId) throw new Error("Not authenticated");
 
-              // 1) create Supabase group (owner = auth.uid())
+              // 1) create Supabase group
               const { data: g, error } = await supabase
                 .from("groups")
                 .insert({ name: name.trim(), owner: userId, edition_id: editionId })
@@ -349,7 +308,7 @@ function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
                 .single();
               if (error) throw error;
 
-              // 2) add membership for self
+              // 2) self membership
               const { error: mErr } = await supabase
                 .from("group_members")
                 .insert({ group_id: g.id, user_id: userId });
@@ -634,9 +593,26 @@ function AdminView({ db, setDb, onExit }) {
   const [authed, setAuthed] = useState(false);
   const [pw, setPw] = useState("");
   const [tab, setTab] = useState("editions");
-  const [editions, setEditions] = useState(db.editions);
 
-  useEffect(() => { setEditions(db.editions); }, [db.editions]);
+  const [eds, setEds] = useState(db.editions);
+  const [selEdition, setSelEdition] = useState(eds[0]?.id || "");
+  const [stmts, setStmts] = useState([]);
+
+  useEffect(() => { setEds(db.editions); if (!selEdition && db.editions[0]) setSelEdition(db.editions[0].id); }, [db.editions]);
+
+  async function reloadEditions() {
+    const ed = await listEditions();
+    setEds(ed);
+    setDb(prev => ({ ...prev, editions: ed }));
+    if (!ed.find(e => e.id === selEdition)) setSelEdition(ed[0]?.id || "");
+  }
+  async function reloadStatements(editionId) {
+    if (!editionId) { setStmts([]); return; }
+    const list = await listStatements({ editionId });
+    setStmts(list);
+  }
+
+  useEffect(() => { if (authed && selEdition) reloadStatements(selEdition); }, [authed, selEdition]);
 
   if (!authed) {
     return (
@@ -645,10 +621,11 @@ function AdminView({ db, setDb, onExit }) {
         <input className="w-full p-3 border-4 border-black" type="password" placeholder="Password" value={pw} onChange={(e)=>setPw(e.target.value)} />
         <div className="grid grid-cols-2 gap-2">
           <button className="w-full p-3 border-4 border-black font-bold" onClick={()=>{
-            if (pw === "XNAbaubauav1114!!!2") setAuthed(true); else alert("Incorrect password");
+            if (pw === "XNAbaubauav1114!!!2") { setAuthed(true); reloadEditions(); } else alert("Incorrect password");
           }}>Enter</button>
           <button className="w-full p-3 border-4 border-black" onClick={onExit}>Exit</button>
         </div>
+        <p className="text-xs opacity-70">Hinweis: Schreibzugriffe funktionieren nur, wenn du mit deinem Admin‑Supabase‑Account eingeloggt bist (RLS).</p>
       </section>
     );
   }
@@ -659,36 +636,136 @@ function AdminView({ db, setDb, onExit }) {
         <h1 className="text-2xl font-black">Admin</h1>
         <div className="flex gap-2">
           <button className={`px-2 py-1 border-2 border-black ${tab==="editions"?"bg-black text-white":""}`} onClick={()=>setTab("editions")}>Editions</button>
-          <button className={`px-2 py-1 border-2 border-black ${tab==="info"?"bg-black text-white":""}`} onClick={()=>setTab("info")}>Info</button>
+          <button className={`px-2 py-1 border-2 border-black ${tab==="statements"?"bg-black text-white":""}`} onClick={()=>setTab("statements")}>Statements</button>
           <button className="px-2 py-1 border-2 border-black" onClick={()=>{ setAuthed(false); setPw(""); }}>Log out</button>
           <button className="px-2 py-1 border-2 border-black" onClick={onExit}>Exit Admin</button>
         </div>
       </div>
 
-      {tab === "editions" && (
-        <div className="text-sm">
-          <p className="mb-2">Editions are loaded from Supabase (read-only here). Manage actual content via SQL or add CRUD later.</p>
-          <div className="grid gap-2">
-            {editions.map(ed => (
-              <div key={ed.id} className="p-2 border-2 border-black">
-                <div className="font-bold">{ed.name} <span className="opacity-60">({ed.slug})</span></div>
-                <div className="text-xs">Active: {String(ed.active)}</div>
-              </div>
-            ))}
-            {editions.length === 0 && <div className="opacity-70">No editions found.</div>}
-          </div>
-        </div>
-      )}
-
-      {tab === "info" && (
-        <div className="text-sm space-y-2">
-          <p>Supabase URL: <code>{import.meta.env.VITE_SUPABASE_URL || "not set"}</code></p>
-          <p>RPC used for statements: <code>next_statement_for_group(g uuid)</code></p>
-          <p>This admin view is intentionally minimal in production. We can enable full CRUD later.</p>
-        </div>
-      )}
+      {tab === "editions" && <AdminEditions eds={eds} onReload={reloadEditions} />}
+      {tab === "statements" && <AdminStatements eds={eds} selEdition={selEdition} setSelEdition={setSelEdition} stmts={stmts} reloadStatements={reloadStatements} />}
     </section>
   );
 }
 
-// end of file
+function AdminEditions({ eds, onReload }) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+
+  return (
+    <div className="space-y-4">
+      <div className="p-3 border-4 border-black">
+        <div className="font-bold mb-2">Add Edition</div>
+        <div className="grid gap-2">
+          <input className="p-2 border-2 border-black" placeholder="Name" value={name} onChange={(e)=>setName(e.target.value)} />
+          <input className="p-2 border-2 border-black" placeholder="slug (unique, a-z-0-9)" value={slug} onChange={(e)=>setSlug(e.target.value)} />
+          <button className="p-2 border-2 border-black font-bold" onClick={async()=>{
+            if (!name.trim() || !slug.trim()) return alert("Name and slug required");
+            try {
+              await createEdition({ name: name.trim(), slug: slug.trim().toLowerCase(), active: true });
+              setName(""); setSlug("");
+              await onReload();
+            } catch (e) { alert(e.message || "Failed to create edition"); }
+          }}>Create</button>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        {eds.map(ed => <EditionRow key={ed.id} ed={ed} onReload={onReload} />)}
+        {eds.length === 0 && <div className="opacity-70 text-sm">No editions found.</div>}
+      </div>
+    </div>
+  );
+}
+
+function EditionRow({ ed, onReload }) {
+  const [name, setName] = useState(ed.name);
+  const [slug, setSlug] = useState(ed.slug);
+  const [active, setActive] = useState(!!ed.active);
+  return (
+    <div className="p-3 border-2 border-black grid gap-2">
+      <div className="flex items-center gap-2">
+        <input className="flex-1 p-2 border-2 border-black" value={name} onChange={(e)=>setName(e.target.value)} />
+        <button className="px-2 py-1 border-2 border-black" onClick={async()=>{
+          try { await renameEdition(ed.id, name.trim()); await onReload(); } catch (e) { alert(e.message); }
+        }}>Rename</button>
+      </div>
+      <div className="flex items-center gap-2">
+        <input className="flex-1 p-2 border-2 border-black" value={slug} onChange={(e)=>setSlug(e.target.value)} />
+        <button className="px-2 py-1 border-2 border-black" onClick={async()=>{
+          try { await changeEditionSlug(ed.id, slug.trim().toLowerCase()); await onReload(); } catch (e) { alert(e.message); }
+        }}>Change slug</button>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={active} onChange={async(e)=>{
+            const val = e.target.checked; setActive(val);
+            try { await toggleEditionActive(ed.id, val); await onReload(); } catch (er) { alert(er.message); }
+          }} />
+          <span>Active</span>
+        </label>
+        <button className="ml-auto px-2 py-1 border-2 border-black" onClick={async()=>{
+          if (!confirm("Delete this edition? Statements linked to it will remain but might be filtered out by your UI.")) return;
+          try { await deleteEdition(ed.id); await onReload(); } catch (e) { alert(e.message); }
+        }}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function AdminStatements({ eds, selEdition, setSelEdition, stmts, reloadStatements }) {
+  const [text, setText] = useState("");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-bold">Edition:</span>
+        <select className="p-2 border-2 border-black" value={selEdition} onChange={async(e)=>{
+          const id = e.target.value; setSelEdition(id); await reloadStatements(id);
+        }}>
+          {eds.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        <button className="ml-auto px-2 py-1 border-2 border-black" onClick={()=> selEdition && reloadStatements(selEdition)}>Reload</button>
+      </div>
+
+      <div className="p-3 border-4 border-black">
+        <div className="font-bold mb-2">Add Statement</div>
+        <div className="grid gap-2">
+          <textarea className="p-2 border-2 border-black" rows="3" placeholder="Statement text" value={text} onChange={(e)=>setText(e.target.value)} />
+          <button className="p-2 border-2 border-black font-bold" onClick={async()=>{
+            if (!selEdition) return alert("Select an edition first");
+            if (!text.trim()) return alert("Text required");
+            try {
+              await createStatement({ text: text.trim(), editionId: selEdition });
+              setText("");
+              await reloadStatements(selEdition);
+            } catch (e) { alert(e.message || "Failed to create statement"); }
+          }}>Create</button>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        {stmts.map(s => <StatementRow key={s.id} s={s} onChanged={()=> reloadStatements(selEdition)} />)}
+        {stmts.length === 0 && <div className="opacity-70 text-sm">No statements in this edition.</div>}
+      </div>
+    </div>
+  );
+}
+
+function StatementRow({ s, onChanged }) {
+  const [text, setText] = useState(s.text);
+  return (
+    <div className="p-2 border-2 border-black grid gap-2">
+      <textarea className="p-2 border-2 border-black" rows="3" value={text} onChange={(e)=>setText(e.target.value)} />
+      <div className="flex items-center gap-2">
+        <button className="px-2 py-1 border-2 border-black" onClick={async()=>{
+          try { await updateStatementText(s.id, text.trim()); await onChanged(); } catch (e) { alert(e.message); }
+        }}>Save</button>
+        <button className="ml-auto px-2 py-1 border-2 border-black" onClick={async()=>{
+          if (!confirm("Delete this statement?")) return;
+          try { await deleteStatement(s.id); await onChanged(); } catch (e) { alert(e.message); }
+        }}>Delete</button>
+      </div>
+    </div>
+  );
+}
