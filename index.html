@@ -1,13 +1,112 @@
+<!-- index.html - Aktualisierte Version mit Flicker-Fix -->
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>Mirrio – Playfully understand each other better</title>
+    <meta name="description" content="Discover your strengths, quirks, and special moments together with Mirrio. Playful, anonymous, and kind – for deeper conversations, more understanding, and stronger bonds.">
+    
+    <!-- Critical CSS für sofortiges Styling -->
+    <style>
+      /* Verhindert FOUC (Flash of Unstyled Content) */
+      body {
+        visibility: hidden;
+        opacity: 0;
+        margin: 0;
+        background-color: white;
+      }
+      
+      /* Loading State */
+      .initial-loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: white;
+        z-index: 9999;
+      }
+      
+      .initial-loader-content {
+        text-align: center;
+      }
+      
+      .initial-loader-title {
+        font-size: 1.5rem;
+        font-weight: 900;
+        letter-spacing: -0.025em;
+        margin-bottom: 0.5rem;
+      }
+      
+      .initial-loader-subtitle {
+        font-size: 0.875rem;
+        opacity: 0.7;
+      }
+      
+      /* Basis-Styles für sofortiges Layout */
+      * {
+        box-sizing: border-box;
+      }
+      
+      html {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.5;
+        -webkit-text-size-adjust: 100%;
+      }
+      
+      /* Nach dem Laden sichtbar machen */
+      body.loaded {
+        visibility: visible;
+        opacity: 1;
+        transition: opacity 0.2s ease-in-out;
+      }
+    </style>
+    
+    <!-- Preload wichtige Assets -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Inline Script für schnelles Laden -->
+    <script>
+      // Entfernt Loader sobald App bereit ist
+      window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+          document.body.classList.add('loaded');
+          const loader = document.getElementById('initial-loader');
+          if (loader) {
+            loader.style.display = 'none';
+          }
+        }, 100);
+      });
+      
+      // Fallback falls DOMContentLoaded nicht funktioniert
+      window.addEventListener('load', function() {
+        document.body.classList.add('loaded');
+        const loader = document.getElementById('initial-loader');
+        if (loader) {
+          loader.style.display = 'none';
+        }
+      });
+    </script>
   </head>
   <body>
+    <!-- Initial Loader (wird sofort angezeigt) -->
+    <div id="initial-loader" class="initial-loader">
+      <div class="initial-loader-content">
+        <div class="initial-loader-title">MIRRIO</div>
+        <div class="initial-loader-subtitle">Lädt...</div>
+      </div>
+    </div>
+    
+    <!-- React Root -->
     <div id="root"></div>
+    
+    <!-- Vite Module -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

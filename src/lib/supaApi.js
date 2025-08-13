@@ -262,6 +262,90 @@ export async function getGroupMembers(groupId) {
   return data;
 }
 
+/** ===================== Group Management ===================== **/
+export async function renameGroup(groupId, newName) {
+  const { data, error } = await supabase
+    .from("groups")
+    .update({ name: newName.trim() })
+    .eq("id", groupId)
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteGroup(groupId) {
+  // Lösche zuerst alle abhängigen Daten in der richtigen Reihenfolge
+  // (Alternativ: CASCADE DELETE in der Datenbank einrichten)
+  
+  try {
+    // 1. Lösche Comments von Rounds dieser Gruppe
+    const { data: rounds } = await supabase
+      .from("rounds")
+      .select("id")
+      .eq("group_id", groupId);
+    
+    if (rounds && rounds.length > 0) {
+      const roundIds = rounds.map(r => r.id);
+      
+      // Lösche Comments
+      await supabase
+        .from("comments")
+        .delete()
+        .in("round_id", roundIds);
+      
+      // Lösche Votes
+      await supabase
+        .from("votes")
+        .delete()
+        .in("round_id", roundIds);
+      
+      // Lösche Round Results
+      await supabase
+        .from("round_results")
+        .delete()
+        .in("round_id", roundIds);
+      
+      // Lösche Rounds
+      await supabase
+        .from("rounds")
+        .delete()
+        .eq("group_id", groupId);
+    }
+    
+    // 2. Lösche Points
+    await supabase
+      .from("points")
+      .delete()
+      .eq("group_id", groupId);
+    
+    // 3. Lösche Group Members
+    await supabase
+      .from("group_members")
+      .delete()
+      .eq("group_id", groupId);
+    
+    // 4. Lösche Used Statements
+    await supabase
+      .from("group_used_statements")
+      .delete()
+      .eq("group_id", groupId);
+    
+    // 5. Lösche die Gruppe selbst
+    const { error } = await supabase
+      .from("groups")
+      .delete()
+      .eq("id", groupId);
+    
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error("Error deleting group:", error);
+    throw error;
+  }
+}
+
 /** ===================== Rounds ===================== **/
 export async function listRounds(groupId) {
   const { data, error } = await supabase

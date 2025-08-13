@@ -15,6 +15,7 @@ import {
   createStatement, updateStatementText, deleteStatement,
   // Groups
   listGroups, getGroup, createGroup, addGroupMember,
+  renameGroup, deleteGroup,
   // Rounds
   listRounds, getActiveRound, createRound, closeRound,
   // Votes
@@ -1097,6 +1098,13 @@ function GroupDetail({ groupId, user, setView }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
+  
+  // Neue States für Gruppenverwaltung
+  const [showManagement, setShowManagement] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useTicker(1000); // For countdown timer
 
@@ -1118,6 +1126,7 @@ function GroupDetail({ groupId, user, setView }) {
       setRounds(rnds);
       setActiveRound(active);
       setLeaderboard(board);
+      setNewGroupName(grp.name); // Setze initialen Namen
     } catch (e) {
       console.error("Error loading group:", e);
     } finally {
@@ -1181,11 +1190,49 @@ function GroupDetail({ groupId, user, setView }) {
     checkAndCloseRound();
   }, [activeRound]);
 
+  // Funktionen für Gruppenverwaltung
+  async function handleRenameGroup() {
+    if (!newGroupName.trim()) {
+      alert("Gruppenname darf nicht leer sein");
+      return;
+    }
+    
+    setSaving(true);
+    try {
+      await renameGroup(groupId, newGroupName);
+      setGroup({...group, name: newGroupName});
+      setEditingName(false);
+      alert("Gruppe wurde umbenannt!");
+    } catch (e) {
+      alert("Fehler beim Umbenennen: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteGroup() {
+    if (!confirm(`Möchtest du die Gruppe "${group.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+      return;
+    }
+    
+    setDeleting(true);
+    try {
+      await deleteGroup(groupId);
+      alert("Gruppe wurde gelöscht!");
+      setView("groups");
+    } catch (e) {
+      alert("Fehler beim Löschen: " + e.message);
+      setDeleting(false);
+    }
+  }
+
   if (loading) return <div className="text-center py-8">Loading group...</div>;
   if (!group) return <div className="text-center py-8">Group not found</div>;
 
   const timeLeft = activeRound ? 
     Math.max(0, new Date(activeRound.expires_at).getTime() - Date.now()) : 0;
+  
+  const isOwner = group.owner === user.id;
 
   return (
     <section className="space-y-4">
@@ -1202,16 +1249,98 @@ function GroupDetail({ groupId, user, setView }) {
         </span>
       </div>
 
+      {/* Group Management Section - nur für Owner */}
+      {isOwner && (
+        <div className="p-3 border-4 border-black bg-gray-50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-bold">Gruppenverwaltung</div>
+            <button
+              className="text-sm underline"
+              onClick={() => setShowManagement(!showManagement)}
+            >
+              {showManagement ? "Ausblenden" : "Anzeigen"}
+            </button>
+          </div>
+          
+          {showManagement && (
+            <div className="space-y-3 mt-3">
+              {/* Gruppe umbenennen */}
+              <div>
+                <div className="text-sm font-bold mb-1">Gruppe umbenennen</div>
+                {editingName ? (
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 p-2 border-2 border-black"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      placeholder="Neuer Gruppenname"
+                    />
+                    <button
+                      className="px-3 py-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+                      style={{ backgroundColor: '#d8e1fc' }}
+                      onClick={handleRenameGroup}
+                      disabled={saving}
+                    >
+                      {saving ? "..." : "Speichern"}
+                    </button>
+                    <button
+                      className="px-3 py-2 border-2 border-black"
+                      onClick={() => {
+                        setEditingName(false);
+                        setNewGroupName(group.name);
+                      }}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="w-full p-2 border-2 border-black hover:opacity-90 transition-opacity"
+                    style={{ backgroundColor: '#d8e1fc' }}
+                    onClick={() => setEditingName(true)}
+                  >
+                    Umbenennen
+                  </button>
+                )}
+              </div>
+              
+              {/* Gruppe löschen */}
+              <div>
+                <div className="text-sm font-bold mb-1 text-red-600">Gefahrenzone</div>
+                <button
+                  className="w-full p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+                  style={{ backgroundColor: '#ffcccc' }}
+                  onClick={handleDeleteGroup}
+                  disabled={deleting}
+                >
+                  {deleting ? "Lösche..." : "Gruppe löschen"}
+                </button>
+                <div className="text-xs opacity-70 mt-1">
+                  Diese Aktion löscht alle Rounds, Votes, Kommentare und Punkte dauerhaft.
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Active Round or Start Button */}
       {!activeRound ? (
         <div className="p-3 border-4 border-black bg-yellow-200">
           <div className="font-bold">No active voting right now.</div>
-          <button
-            className="mt-2 w-full p-3 border-4 border-black font-bold"
-            onClick={handleStartNewRound}
-          >
-            Start new round
-          </button>
+          {isOwner && (
+            <button
+              className="mt-2 w-full p-3 border-4 border-black font-bold"
+              onClick={handleStartNewRound}
+            >
+              Start new round
+            </button>
+          )}
+          {!isOwner && (
+            <div className="mt-2 text-sm opacity-70">
+              Nur der Gruppeninhaber kann neue Rounds starten.
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-3 border-4 border-black">
@@ -1283,7 +1412,12 @@ function GroupDetail({ groupId, user, setView }) {
                   `${profiles.first_name || ""} ${profiles.last_name || ""}`.trim() : 
                   profiles.email}
               />
-              <span className="ml-auto text-xs opacity-70">{profiles.email}</span>
+              <span className="ml-auto text-xs opacity-70">
+                {profiles.email}
+                {profiles.id === group.owner && (
+                  <span className="ml-2 px-1 border border-black">Owner</span>
+                )}
+              </span>
             </div>
           ))}
         </div>
