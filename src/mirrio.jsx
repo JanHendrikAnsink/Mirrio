@@ -63,15 +63,48 @@ export default function Mirrio() {
     const initAuth = async () => {
       setLoading(true);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          setUser(session.user);
-          const prof = await getProfile(session.user.id);
-          setProfile(prof);
-          if (location.pathname !== "/admin") setView("groups");
+        // Check for auth params in URL (from magic link)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        
+        if (accessToken) {
+          console.log('Magic link token detected, processing...');
+          // Let Supabase handle the token
+          const { data: { session }, error } = await supabase.auth.getSession();
+          
+          if (error) {
+            console.error('Error processing magic link:', error);
+            setError(error.message);
+          } else if (session?.user) {
+            console.log('Magic link login successful:', session.user.email);
+            setUser(session.user);
+            const prof = await getProfile(session.user.id);
+            setProfile(prof);
+            
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            if (location.pathname !== "/admin") setView("groups");
+          }
+        } else {
+          // Normal session check
+          const { data: { session }, error } = await supabase.auth.getSession();
+          
+          if (error) {
+            console.error('Session error:', error);
+          } else if (session?.user) {
+            console.log('Existing session found:', session.user.email);
+            setUser(session.user);
+            const prof = await getProfile(session.user.id);
+            setProfile(prof);
+            if (location.pathname !== "/admin") setView("groups");
+          } else {
+            console.log('No session found');
+          }
         }
       } catch (e) {
         console.error("Auth init error:", e);
+        setError(e.message || "Authentication error");
       } finally {
         setLoading(false);
       }
@@ -79,16 +112,33 @@ export default function Mirrio() {
 
     initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
+      
+      if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
-        const prof = await getProfile(session.user.id);
-        setProfile(prof);
+        try {
+          const prof = await getProfile(session.user.id);
+          setProfile(prof);
+        } catch (e) {
+          console.error('Error loading profile:', e);
+        }
         if (location.pathname !== "/admin") setView("groups");
-      } else {
+        setLoading(false);
+      } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
         if (location.pathname !== "/admin") setView("login");
+        setLoading(false);
+      } else if (event === 'USER_UPDATED' && session?.user) {
+        setUser(session.user);
+        try {
+          const prof = await getProfile(session.user.id);
+          setProfile(prof);
+        } catch (e) {
+          console.error('Error updating profile:', e);
+        }
       }
     });
 
@@ -132,6 +182,9 @@ export default function Mirrio() {
         <div className="text-center">
           <div className="font-black text-2xl mb-2">MIRRIO</div>
           <div className="text-sm opacity-70">Lädt...</div>
+          <div className="text-xs opacity-50 mt-4">
+            {window.location.hash.includes('access_token') ? 'Verarbeite Login...' : 'Lade Daten...'}
+          </div>
         </div>
       </div>
     );

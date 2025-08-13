@@ -19,8 +19,9 @@ export const supabase = createClient(url, anon, {
     persistSession: true, 
     autoRefreshToken: true, 
     detectSessionInUrl: true,
-    storage: window.localStorage,
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     storageKey: 'mirrio-auth-token',
-    flowType: 'pkce'
+    flowType: 'pkce',
+    debug: import.meta.env.DEV // Enable debug logs in development
   },
 });
