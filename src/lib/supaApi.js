@@ -1,18 +1,46 @@
 // src/lib/supaApi.js
 import { supabase } from "../supabaseClient";
 
-/** Auth helpers **/
+/** ===================== Auth helpers ===================== **/
 export async function getUser() {
   const { data, error } = await supabase.auth.getUser();
   if (error) throw error;
   return data.user ?? null;
 }
+
 export async function getUserId() {
   const u = await getUser();
   return u?.id ?? null;
 }
 
-/** -------------------- EDITIONS (CRUD) -------------------- **/
+/** ===================== Profiles ===================== **/
+export async function getProfile(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .single();
+  if (error && error.code !== 'PGRST116') throw error; // Ignore not found
+  return data;
+}
+
+export async function upsertProfile({ id, email, firstName, lastName, imageUrl }) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert({
+      id,
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      image_url: imageUrl
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** ===================== Editions CRUD ===================== **/
 export async function listEditions() {
   const { data, error } = await supabase
     .from("editions")
@@ -22,6 +50,7 @@ export async function listEditions() {
   if (error) throw error;
   return data;
 }
+
 export async function createEdition({ name, slug, active = true }) {
   const { data, error } = await supabase
     .from("editions")
@@ -31,6 +60,7 @@ export async function createEdition({ name, slug, active = true }) {
   if (error) throw error;
   return data;
 }
+
 export async function renameEdition(id, name) {
   const { data, error } = await supabase
     .from("editions")
@@ -41,6 +71,7 @@ export async function renameEdition(id, name) {
   if (error) throw error;
   return data;
 }
+
 export async function changeEditionSlug(id, slug) {
   const { data, error } = await supabase
     .from("editions")
@@ -51,6 +82,7 @@ export async function changeEditionSlug(id, slug) {
   if (error) throw error;
   return data;
 }
+
 export async function toggleEditionActive(id, active) {
   const { data, error } = await supabase
     .from("editions")
@@ -61,16 +93,14 @@ export async function toggleEditionActive(id, active) {
   if (error) throw error;
   return data;
 }
+
 export async function deleteEdition(id) {
-  const { error } = await supabase
-    .from("editions")
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("editions").delete().eq("id", id);
   if (error) throw error;
   return true;
 }
 
-/** -------------------- STATEMENTS (CRUD) -------------------- **/
+/** ===================== Statements CRUD ===================== **/
 export async function listStatements({ editionId } = {}) {
   let q = supabase.from("statements").select("*").order("created_at", { ascending: false });
   if (editionId) q = q.eq("edition_id", editionId);
@@ -78,6 +108,7 @@ export async function listStatements({ editionId } = {}) {
   if (error) throw error;
   return data;
 }
+
 export async function createStatement({ text, editionId }) {
   const { data, error } = await supabase
     .from("statements")
@@ -87,6 +118,7 @@ export async function createStatement({ text, editionId }) {
   if (error) throw error;
   return data;
 }
+
 export async function updateStatementText(id, text) {
   const { data, error } = await supabase
     .from("statements")
@@ -97,25 +129,318 @@ export async function updateStatementText(id, text) {
   if (error) throw error;
   return data;
 }
+
 export async function deleteStatement(id) {
-  const { error } = await supabase
-    .from("statements")
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("statements").delete().eq("id", id);
   if (error) throw error;
   return true;
 }
 
-/** -------------------- Statement selection (server) -------------------- **/
+/** ===================== Groups ===================== **/
+export async function listGroups() {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Get groups where user is member
+  const { data, error } = await supabase
+    .from("groups")
+    .select(`
+      *,
+      group_members!inner(user_id),
+      editions(name, slug)
+    `)
+    .eq("group_members.user_id", userId)
+    .order("created_at", { ascending: false });
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function getGroup(groupId) {
+  const { data, error } = await supabase
+    .from("groups")
+    .select(`
+      *,
+      editions(name, slug),
+      group_members(
+        user_id,
+        profiles(id, email, first_name, last_name, image_url)
+      )
+    `)
+    .eq("id", groupId)
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function createGroup({ name, editionId }) {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Create group
+  const { data: group, error: groupError } = await supabase
+    .from("groups")
+    .insert({ 
+      name: name.trim(), 
+      owner: userId, 
+      edition_id: editionId 
+    })
+    .select()
+    .single();
+  
+  if (groupError) throw groupError;
+  
+  // Add creator as member
+  const { error: memberError } = await supabase
+    .from("group_members")
+    .insert({ 
+      group_id: group.id, 
+      user_id: userId 
+    });
+  
+  if (memberError) throw memberError;
+  
+  return group;
+}
+
+export async function addGroupMember(groupId, userId) {
+  const { error } = await supabase
+    .from("group_members")
+    .insert({ group_id: groupId, user_id: userId });
+  
+  if (error && error.code !== '23505') throw error; // Ignore duplicate
+  return true;
+}
+
+export async function removeGroupMember(groupId, userId) {
+  const { error } = await supabase
+    .from("group_members")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", userId);
+  
+  if (error) throw error;
+  return true;
+}
+
+/** ===================== Rounds ===================== **/
+export async function listRounds(groupId) {
+  const { data, error } = await supabase
+    .from("rounds")
+    .select(`
+      *,
+      statements(id, text),
+      round_results(winner, votes_count, closed_at)
+    `)
+    .eq("group_id", groupId)
+    .order("issued_at", { ascending: false });
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function getActiveRound(groupId) {
+  const { data, error } = await supabase
+    .from("rounds")
+    .select(`
+      *,
+      statements(id, text),
+      votes(voter, target)
+    `)
+    .eq("group_id", groupId)
+    .gt("expires_at", new Date().toISOString())
+    .is("round_results.closed_at", null)
+    .order("issued_at", { ascending: false })
+    .limit(1)
+    .single();
+  
+  if (error && error.code !== 'PGRST116') throw error; // Ignore not found
+  return data;
+}
+
+export async function createRound({ groupId, statementId, expiresIn = 24 * 60 * 60 * 1000 }) {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + expiresIn);
+  
+  const { data, error } = await supabase
+    .from("rounds")
+    .insert({
+      group_id: groupId,
+      statement_id: statementId,
+      issued_at: now.toISOString(),
+      expires_at: expiresAt.toISOString()
+    })
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function closeRound(roundId, winner, votesCount) {
+  const { data, error } = await supabase
+    .from("round_results")
+    .insert({
+      round_id: roundId,
+      winner,
+      votes_count: votesCount,
+      closed_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+  
+  if (error) throw error;
+  
+  // Update points if there's a winner
+  if (winner) {
+    const { data: round } = await supabase
+      .from("rounds")
+      .select("group_id")
+      .eq("id", roundId)
+      .single();
+    
+    if (round) {
+      await incrementPoints(winner, round.group_id, 1);
+    }
+  }
+  
+  return data;
+}
+
+/** ===================== Votes ===================== **/
+export async function submitVote({ roundId, target }) {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Not authenticated");
+  
+  const { data, error } = await supabase
+    .from("votes")
+    .upsert({
+      round_id: roundId,
+      voter: userId,
+      target // can be null for abstain
+    })
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function getVotes(roundId) {
+  const { data, error } = await supabase
+    .from("votes")
+    .select(`
+      *,
+      voter_profile:profiles!voter(id, email, first_name, last_name),
+      target_profile:profiles!target(id, email, first_name, last_name)
+    `)
+    .eq("round_id", roundId);
+  
+  if (error) throw error;
+  return data;
+}
+
+/** ===================== Comments ===================== **/
+export async function listComments(roundId) {
+  const { data, error } = await supabase
+    .from("comments")
+    .select(`
+      *,
+      profiles!author(id, email, first_name, last_name, image_url)
+    `)
+    .eq("round_id", roundId)
+    .order("created_at", { ascending: true });
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function createComment({ roundId, text }) {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Not authenticated");
+  
+  const { data, error } = await supabase
+    .from("comments")
+    .insert({
+      round_id: roundId,
+      author: userId,
+      text: text.trim()
+    })
+    .select(`
+      *,
+      profiles!author(id, email, first_name, last_name, image_url)
+    `)
+    .single();
+  
+  if (error) throw error;
+  return data;
+}
+
+/** ===================== Points (Leaderboard) ===================== **/
+export async function getLeaderboard(groupId) {
+  const { data, error } = await supabase
+    .from("points")
+    .select(`
+      *,
+      profiles!user_id(id, email, first_name, last_name, image_url)
+    `)
+    .eq("group_id", groupId)
+    .order("points", { ascending: false });
+  
+  if (error) throw error;
+  return data;
+}
+
+export async function incrementPoints(userId, groupId, points = 1) {
+  // First try to update existing record
+  const { data: existing } = await supabase
+    .from("points")
+    .select("points")
+    .eq("user_id", userId)
+    .eq("group_id", groupId)
+    .single();
+  
+  if (existing) {
+    const { error } = await supabase
+      .from("points")
+      .update({ points: existing.points + points })
+      .eq("user_id", userId)
+      .eq("group_id", groupId);
+    
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from("points")
+      .insert({ user_id: userId, group_id: groupId, points });
+    
+    if (error) throw error;
+  }
+  
+  return true;
+}
+
+/** ===================== Statement selection ===================== **/
 export async function rpcNextStatementForGroup(groupId) {
   const { data, error } = await supabase.rpc("next_statement_for_group", { g: groupId });
   if (error) throw error;
-  return data ?? null; // { id, text, edition_id } | null
+  return data ?? null;
 }
+
 export async function markStatementUsed(groupId, statementId) {
   const { error } = await supabase
     .from("group_used_statements")
     .insert({ group_id: groupId, statement_id: statementId });
   if (error) throw error;
   return true;
+}
+
+/** ===================== Invitations ===================== **/
+export async function joinGroupByInvite(inviteCode) {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // inviteCode is the group_id for now
+  // In production, you might want to use a separate invite_codes table
+  return addGroupMember(inviteCode, userId);
 }

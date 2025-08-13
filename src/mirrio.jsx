@@ -1,49 +1,36 @@
-// src/mirrio.jsx — Admin CRUD for Editions & Statements + Supabase RPC for statements
-import React, { useEffect, useMemo, useState } from "react";
+// src/mirrio.jsx – Vollständige Supabase Integration
+import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 import {
-  listEditions, createEdition, renameEdition, changeEditionSlug, toggleEditionActive, deleteEdition,
-  listStatements, createStatement, updateStatementText, deleteStatement,
-  rpcNextStatementForGroup, markStatementUsed, getUserId
+  // Auth
+  getUser, getUserId,
+  // Profiles
+  getProfile, upsertProfile,
+  // Editions & Statements
+  listEditions, listStatements,
+  createEdition, renameEdition, changeEditionSlug, toggleEditionActive, deleteEdition,
+  createStatement, updateStatementText, deleteStatement,
+  // Groups
+  listGroups, getGroup, createGroup, addGroupMember,
+  // Rounds
+  listRounds, getActiveRound, createRound, closeRound,
+  // Votes
+  submitVote, getVotes,
+  // Comments
+  listComments, createComment,
+  // Leaderboard
+  getLeaderboard, incrementPoints,
+  // Statement selection
+  rpcNextStatementForGroup, markStatementUsed,
+  // Join group
+  joinGroupByInvite
 } from "./lib/supaApi";
 
-const DB_KEY = "mirror.db.v1";
-const now = () => Date.now();
+const ADMIN_UUID = "be064bc9-0f03-4333-b832-688b8ba636d1";
 const DAY = 24 * 60 * 60 * 1000;
-const WEEK = 7 * DAY;
-
-function uid(prefix = "id") {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
-}
-
-function createEmptyDB() {
-  return {
-    users: {},
-    groups: {},
-    statements: [],
-    notifications: {},
-    editions: [],
-  };
-}
-function loadDB() {
-  try {
-    const raw = localStorage.getItem(DB_KEY);
-    if (!raw) return createEmptyDB();
-    const data = JSON.parse(raw);
-    return { ...createEmptyDB(), ...data };
-  } catch {
-    return createEmptyDB();
-  }
-}
-function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
-
-function dbAddNotification(db, email, note) {
-  db.notifications[email] = db.notifications[email] || [];
-  db.notifications[email].unshift({ id: uid("notif"), ts: now(), ...note });
-}
 
 function humanTime(ms) {
   if (ms <= 0) return "00:00";
@@ -64,84 +51,126 @@ function useTicker(interval = 1000) {
 }
 
 export default function Mirrio() {
-  const [db, setDb] = useState(loadDB());
-  const [email, setEmail] = useState(null);
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [view, setView] = useState(() => location.pathname === "/admin" ? "admin" : "login");
   const [activeGroupId, setActiveGroupId] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // SPA route sync
+  // Auth state management
   useEffect(() => {
-    const onPop = () => setView(location.pathname === "/admin" ? "admin" : (email ? "groups" : "login"));
+    const initAuth = async () => {
+      setLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUser(session.user);
+          const prof = await getProfile(session.user.id);
+          setProfile(prof);
+          if (location.pathname !== "/admin") setView("groups");
+        }
+      } catch (e) {
+        console.error("Auth init error:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        const prof = await getProfile(session.user.id);
+        setProfile(prof);
+        if (location.pathname !== "/admin") setView("groups");
+      } else {
+        setUser(null);
+        setProfile(null);
+        if (location.pathname !== "/admin") setView("login");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Handle invite links
+  useEffect(() => {
+    const handleInvite = async () => {
+      const params = new URLSearchParams(location.search);
+      const inviteCode = params.get("invite");
+      
+      if (inviteCode && user) {
+        try {
+          await joinGroupByInvite(inviteCode);
+          alert("Du wurdest zur Gruppe hinzugefügt!");
+          // Clear invite from URL
+          const url = new URL(location.href);
+          url.searchParams.delete("invite");
+          history.replaceState({}, "", url.toString());
+          setView("groups");
+        } catch (e) {
+          console.error("Could not join group:", e);
+        }
+      }
+    };
+
+    if (user) handleInvite();
+  }, [user]);
+
+  // Navigation handling
+  useEffect(() => {
+    const onPop = () => setView(location.pathname === "/admin" ? "admin" : (user ? "groups" : "login"));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [email]);
+  }, [user]);
 
-  // Auth session
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      const em = data?.session?.user?.email || null;
-      setEmail(em);
-      if (location.pathname !== "/admin") setView(em ? "groups" : "login");
-    })();
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
-      const em = session?.user?.email || null;
-      setEmail(em);
-      if (location.pathname !== "/admin") setView(em ? "groups" : "login");
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  // Hash error
-  useEffect(() => {
-    if (location.hash && location.hash.includes("error=")) {
-      const p = new URLSearchParams(location.hash.slice(1));
-      const desc = p.get("error_description");
-      alert(`Login-Fehler: ${desc || "Unknown error"}`);
-      history.replaceState({}, "", location.pathname + location.search);
-    }
-  }, []);
-
-  // Persist
-  useEffect(() => saveDB(db), [db]);
-  useTicker(1000);
-
-  // Load editions on login
-  useEffect(() => {
-    (async () => {
-      if (!email) return;
-      try {
-        const eds = await listEditions();
-        setDb(prev => ({ ...prev, editions: eds }));
-      } catch (e) {
-        console.error("Loading editions failed:", e);
-      }
-    })();
-  }, [email]);
-
-  const me = email ? db.users[email] : null;
+  if (loading) {
+    return (
+      <div className="min-h-dvh bg-white grid place-items-center">
+        <div className="text-center">
+          <div className="font-black text-2xl mb-2">MIRRIO</div>
+          <div className="text-sm opacity-70">Lädt...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-white text-black">
       <Header
-        email={email}
-        me={me}
-        onSignOut={() => { supabase.auth.signOut(); if (location.pathname !== "/admin") setView("login"); }}
+        user={user}
+        profile={profile}
+        onSignOut={() => supabase.auth.signOut()}
         onGo={(v) => setView(v)}
-        setMenuOpen={setMenuOpen}
       />
 
       <main className="mx-auto w-full max-w-md p-3 pb-24">
-        {view === "login" && <AuthView db={db} setDb={setDb} onLoggedIn={() => setView("groups")} />}
-        {view === "profile" && email && <ProfileView db={db} setDb={setDb} email={email} />}
-        {view === "groups" && email && (
-          <GroupsView db={db} setDb={setDb} email={email} setView={setView} setActiveGroupId={setActiveGroupId} />
+        {error && (
+          <div className="mb-4 p-3 border-4 border-red-600 bg-red-50 text-red-700">
+            {error}
+          </div>
         )}
-        {view === "group" && activeGroupId && email && (
-          <GroupDetail db={db} setDb={setDb} groupId={activeGroupId} meEmail={email} />
+
+        {view === "login" && !user && <AuthView />}
+        {view === "profile" && user && (
+          <ProfileView user={user} profile={profile} onUpdate={() => location.reload()} />
         )}
-        {view === "admin" && <AdminView db={db} setDb={setDb} onExit={() => { history.pushState({}, "", "/"); setView(email ? "groups" : "login"); }} />}
+        {view === "groups" && user && (
+          <GroupsView user={user} setView={setView} setActiveGroupId={setActiveGroupId} />
+        )}
+        {view === "group" && activeGroupId && user && (
+          <GroupDetail groupId={activeGroupId} user={user} setView={setView} />
+        )}
+        {view === "admin" && (
+          <AdminView
+            onExit={() => { 
+              history.pushState({}, "", "/"); 
+              setView(user ? "groups" : "login"); 
+            }}
+          />
+        )}
       </main>
 
       {import.meta.env.PROD && (<><Analytics /><SpeedInsights /></>)}
@@ -149,22 +178,27 @@ export default function Mirrio() {
   );
 }
 
-function Header({ email, me, onSignOut, onGo, setMenuOpen }) {
+function Header({ user, profile, onSignOut, onGo }) {
+  const displayName = profile ? 
+    `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || user?.email : 
+    user?.email;
+
   return (
     <header className="sticky top-0 z-10 bg-white border-b-4 border-black">
       <div className="mx-auto max-w-md flex items-center justify-between p-3">
         <div className="font-black text-xl tracking-tight">MIRRIO</div>
-        <div className="flex items-center gap-2">
-          {email && <button className="px-2 py-1 border-2 border-black" onClick={() => onGo("groups")}>Groups</button>}
-          <button className="px-2 py-1 border-2 border-black" onClick={() => setMenuOpen(true)}>☰</button>
-        </div>
+        {user && (
+          <div className="flex items-center gap-2">
+            <button className="px-2 py-1 border-2 border-black" onClick={() => onGo("groups")}>Groups</button>
+          </div>
+        )}
       </div>
-      {email && (
+      {user && (
         <div className="mx-auto max-w-md px-3 pb-2 flex items-center gap-3">
-          <Avatar img={me?.imageDataURL} label={me ? `${me.firstName} ${me.lastName}` : email} />
+          <Avatar img={profile?.image_url} label={displayName} />
           <div className="text-xs">
-            <div className="font-bold leading-tight">{me ? `${me.firstName} ${me.lastName}` : email}</div>
-            <div className="opacity-70">{email}</div>
+            <div className="font-bold leading-tight">{displayName}</div>
+            <div className="opacity-70">{user.email}</div>
           </div>
           <div className="flex-1" />
           <button className="px-2 py-1 border-2 border-black" onClick={() => onGo("profile")}>Profile</button>
@@ -179,14 +213,17 @@ function Avatar({ img, label, size = 40 }) {
   return (
     <div className="flex items-center gap-2">
       <div className="shrink-0 border-2 border-black bg-white" style={{ width: size, height: size }}>
-        {img ? <img src={img} alt="avatar" className="w-full h-full object-cover" /> : <div className="w-full h-full grid place-items-center text-xs">🙂</div>}
+        {img ? 
+          <img src={img} alt="avatar" className="w-full h-full object-cover" /> : 
+          <div className="w-full h-full grid place-items-center text-xs">🙂</div>
+        }
       </div>
       {label && <span className="text-sm font-bold line-clamp-1">{label}</span>}
     </div>
   );
 }
 
-function AuthView({ db, setDb }) {
+function AuthView() {
   const [step, setStep] = useState("email");
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState(null);
@@ -199,17 +236,17 @@ function AuthView({ db, setDb }) {
       {step === "email" && (
         <div className="space-y-2">
           <label className="block text-sm font-bold">E-mail</label>
-          <input className="w-full p-3 border-4 border-black" placeholder="you@example.com" value={email} onChange={(e)=>setEmail(e.target.value)} />
+          <input 
+            className="w-full p-3 border-4 border-black" 
+            placeholder="you@example.com" 
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+          />
           <button
             className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
             disabled={sending}
             onClick={async () => {
               if (!email.includes("@")) return alert("Enter a valid email");
-              setDb(prev => {
-                const copy = { ...prev, users: { ...prev.users } };
-                copy.users[email] = copy.users[email] || { email, firstName: "", lastName: "", imageDataURL: "" };
-                return copy;
-              });
               setSending(true);
               const { error } = await supabase.auth.signInWithOtp({
                 email: email.trim(),
@@ -223,7 +260,7 @@ function AuthView({ db, setDb }) {
           >
             {sending ? "Sending…" : "Send Magic Link"}
           </button>
-          <p className="text-xs opacity-70">We’ll e-mail you a secure sign-in link.</p>
+          <p className="text-xs opacity-70">We'll e-mail you a secure sign-in link.</p>
         </div>
       )}
       {step === "sent" && (
@@ -231,57 +268,142 @@ function AuthView({ db, setDb }) {
           <div className="p-3 border-4 border-black bg-black text-white text-sm break-all">
             We sent a link to <b>{sentTo}</b>. Check your inbox and click it.
           </div>
-          <button className="block w-full p-3 border-4 border-black text-center font-bold" onClick={()=>setStep("email")}>Use a different e-mail</button>
+          <button 
+            className="block w-full p-3 border-4 border-black text-center font-bold" 
+            onClick={() => setStep("email")}
+          >
+            Use a different e-mail
+          </button>
         </div>
       )}
     </section>
   );
 }
 
-function ProfileView({ db, setDb, email }) {
-  const u = db.users[email] || { email };
-  const [firstName, setFirstName] = useState(u.firstName || "");
-  const [lastName, setLastName] = useState(u.lastName || "");
-  const [img, setImg] = useState(u.imageDataURL || "");
+function ProfileView({ user, profile, onUpdate }) {
+  const [firstName, setFirstName] = useState(profile?.first_name || "");
+  const [lastName, setLastName] = useState(profile?.last_name || "");
+  const [imageUrl, setImageUrl] = useState(profile?.image_url || "");
+  const [saving, setSaving] = useState(false);
 
   async function onPick(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    // For production, you should upload to Supabase Storage
+    // For now, we'll use data URLs (limited to small images)
     const reader = new FileReader();
-    reader.onload = () => setImg(reader.result);
+    reader.onload = () => setImageUrl(reader.result);
     reader.readAsDataURL(file);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await upsertProfile({
+        id: user.id,
+        email: user.email,
+        firstName,
+        lastName,
+        imageUrl
+      });
+      alert("Profile saved!");
+      onUpdate();
+    } catch (e) {
+      alert("Error saving profile: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <section className="space-y-4">
       <h1 className="text-2xl font-black">Your profile</h1>
       <div className="grid grid-cols-3 gap-3 items-center">
-        <div className="col-span-1"><Avatar img={img} size={64} label={firstName || email} /></div>
-        <div className="col-span-2 text-xs opacity-70">Upload a square image for best results.</div>
+        <div className="col-span-1">
+          <Avatar img={imageUrl} size={64} label={firstName || user.email} />
+        </div>
+        <div className="col-span-2 text-xs opacity-70">
+          Upload a square image for best results.
+        </div>
       </div>
       <div className="space-y-2">
         <label className="block text-sm font-bold">First name</label>
-        <input className="w-full p-3 border-4 border-black" value={firstName} onChange={(e)=>setFirstName(e.target.value)} />
+        <input 
+          className="w-full p-3 border-4 border-black" 
+          value={firstName} 
+          onChange={(e) => setFirstName(e.target.value)} 
+        />
         <label className="block text-sm font-bold">Last name</label>
-        <input className="w-full p-3 border-4 border-black" value={lastName} onChange={(e)=>setLastName(e.target.value)} />
+        <input 
+          className="w-full p-3 border-4 border-black" 
+          value={lastName} 
+          onChange={(e) => setLastName(e.target.value)} 
+        />
         <label className="block text-sm font-bold">Profile picture</label>
-        <input className="w-full p-3 border-4 border-black" type="file" accept="image/*" onChange={onPick} />
-        <button className="w-full p-3 border-4 border-black font-bold" onClick={()=>{
-          setDb(prev=>{
-            const copy = { ...prev, users: { ...prev.users } };
-            copy.users[email] = { email, firstName, lastName, imageDataURL: img };
-            return copy;
-          });
-          alert("Profile saved.");
-        }}>Save</button>
+        <input 
+          className="w-full p-3 border-4 border-black" 
+          type="file" 
+          accept="image/*" 
+          onChange={onPick} 
+        />
+        <button 
+          className="w-full p-3 border-4 border-black font-bold disabled:opacity-60" 
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? "Saving..." : "Save"}
+        </button>
       </div>
     </section>
   );
 }
 
-function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
-  const myGroups = Object.values(db.groups).filter(g => g.members.includes(email));
+function GroupsView({ user, setView, setActiveGroupId }) {
+  const [groups, setGroups] = useState([]);
+  const [editions, setEditions] = useState([]);
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const [grps, eds] = await Promise.all([listGroups(), listEditions()]);
+      setGroups(grps);
+      setEditions(eds.filter(e => e.active));
+    } catch (e) {
+      console.error("Error loading data:", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateGroup() {
+    if (!name.trim()) return alert("Name required");
+    
+    const activeEdition = editions.find(e => e.active);
+    if (!activeEdition) {
+      return alert("No active edition available. Please contact admin.");
+    }
+
+    setCreating(true);
+    try {
+      await createGroup({ name: name.trim(), editionId: activeEdition.id });
+      setName("");
+      await loadData();
+    } catch (e) {
+      alert("Error creating group: " + e.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  if (loading) return <div className="text-center py-8">Loading groups...</div>;
 
   return (
     <section className="space-y-4">
@@ -289,136 +411,213 @@ function GroupsView({ db, setDb, email, setView, setActiveGroupId }) {
 
       <div className="space-y-2">
         <label className="block text-sm font-bold">Create a new group</label>
-        <input className="w-full p-3 border-4 border-black" placeholder="Group name" value={name} onChange={(e)=>setName(e.target.value)} />
+        <input 
+          className="w-full p-3 border-4 border-black" 
+          placeholder="Group name" 
+          value={name} 
+          onChange={(e) => setName(e.target.value)} 
+        />
         <button
-          className="w-full p-3 border-4 border-black font-bold"
-          onClick={async ()=>{
-            if (!name.trim()) return alert("Name required");
-            try {
-              const editionId = db.editions[0]?.id; // simple default
-              if (!editionId) return alert("No edition available. Please add one in Admin.");
-              const userId = await getUserId();
-              if (!userId) throw new Error("Not authenticated");
-
-              // 1) create Supabase group
-              const { data: g, error } = await supabase
-                .from("groups")
-                .insert({ name: name.trim(), owner: userId, edition_id: editionId })
-                .select()
-                .single();
-              if (error) throw error;
-
-              // 2) self membership
-              const { error: mErr } = await supabase
-                .from("group_members")
-                .insert({ group_id: g.id, user_id: userId });
-              if (mErr) throw mErr;
-
-              // 3) local mirror with supabaseId
-              const id = uid("group");
-              setDb(prev=>{
-                const copy = { ...prev, groups: { ...prev.groups } };
-                copy.groups[id] = {
-                  id,
-                  supabaseId: g.id,
-                  name: name.trim(),
-                  ownerEmail: email,
-                  members: [email],
-                  rounds: [],
-                  leaderboard: { [email]: 0 },
-                  usedStatementIds: [],
-                  nextIssueAt: null,
-                  editionId,
-                };
-                return copy;
-              });
-              setName("");
-            } catch (e) {
-              console.error(e);
-              alert(e.message || "Failed to create group");
-            }
-          }}
+          className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+          onClick={handleCreateGroup}
+          disabled={creating || editions.length === 0}
         >
-          Create group
+          {creating ? "Creating..." : "Create group"}
         </button>
       </div>
 
       <div className="grid gap-3">
-        {myGroups.map(g => (
+        {groups.map(g => (
           <div key={g.id} className="p-3 border-4 border-black">
             <div className="flex items-center gap-2">
               <div className="font-extrabold text-lg">{g.name}</div>
-              <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">{g.members.length} members</span>
+              <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
+                {g.group_members?.length || 0} members
+              </span>
             </div>
             <div className="text-xs mt-1 opacity-70">
-              Edition: {db.editions.find(e=>e.id===g.editionId)?.name || "—"}
+              Edition: {g.editions?.name || "—"}
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <button className="p-2 border-2 border-black" onClick={()=>{ setActiveGroupId(g.id); setView("group"); }}>Open</button>
-              <InviteButton group={g} />
+              <button 
+                className="p-2 border-2 border-black" 
+                onClick={() => { 
+                  setActiveGroupId(g.id); 
+                  setView("group"); 
+                }}
+              >
+                Open
+              </button>
+              <InviteButton groupId={g.id} />
             </div>
           </div>
         ))}
-        {myGroups.length === 0 && <p className="text-sm opacity-70">No groups yet. Create one and invite your friends.</p>}
+        {groups.length === 0 && (
+          <p className="text-sm opacity-70">
+            No groups yet. Create one and invite your friends.
+          </p>
+        )}
       </div>
     </section>
   );
 }
 
-function InviteButton({ group }) {
+function InviteButton({ groupId }) {
   const [copied, setCopied] = useState(false);
-  const inviteURL = useMemo(()=>{
-    const url = new URL(location.href);
-    url.searchParams.set("invite", group.id);
-    return url.toString();
-  }, [group.id]);
+  
+  const inviteURL = `${location.origin}?invite=${groupId}`;
 
   return (
-    <button className="p-2 border-2 border-black" onClick={()=>{
-      navigator.clipboard.writeText(inviteURL);
-      setCopied(true);
-      setTimeout(()=>setCopied(false), 1500);
-    }}>{copied ? "Link copied" : "Copy invite"}</button>
+    <button 
+      className="p-2 border-2 border-black" 
+      onClick={() => {
+        navigator.clipboard.writeText(inviteURL);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+    >
+      {copied ? "Link copied" : "Copy invite"}
+    </button>
   );
 }
 
-function GroupDetail({ db, setDb, groupId, meEmail }) {
-  const g = db.groups[groupId];
-  const active = (g.rounds || []).find(r => !r.closed);
-  const [comment, setComment] = useState("");
+function GroupDetail({ groupId, user, setView }) {
+  const [group, setGroup] = useState(null);
+  const [rounds, setRounds] = useState([]);
+  const [activeRound, setActiveRound] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refresh, setRefresh] = useState(0);
 
-  useTicker(1000);
-  const timeLeft = active ? Math.max(0, active.expiresAt - now()) : 0;
+  useTicker(1000); // For countdown timer
+
+  useEffect(() => {
+    loadGroupData();
+  }, [groupId, refresh]);
+
+  async function loadGroupData() {
+    setLoading(true);
+    try {
+      const [grp, rnds, active, board] = await Promise.all([
+        getGroup(groupId),
+        listRounds(groupId),
+        getActiveRound(groupId),
+        getLeaderboard(groupId)
+      ]);
+      
+      setGroup(grp);
+      setRounds(rnds);
+      setActiveRound(active);
+      setLeaderboard(board);
+    } catch (e) {
+      console.error("Error loading group:", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStartNewRound() {
+    try {
+      const stmt = await rpcNextStatementForGroup(groupId);
+      if (!stmt) {
+        alert("Keine unbenutzten Statements in dieser Edition.");
+        return;
+      }
+
+      await createRound({
+        groupId,
+        statementId: stmt.id,
+        expiresIn: DAY
+      });
+
+      await markStatementUsed(groupId, stmt.id);
+      setRefresh(r => r + 1);
+    } catch (e) {
+      alert("Error starting round: " + e.message);
+    }
+  }
+
+  async function checkAndCloseRound() {
+    if (!activeRound) return;
+    
+    const now = new Date();
+    const expires = new Date(activeRound.expires_at);
+    
+    if (now > expires || activeRound.votes?.length >= group.group_members?.length) {
+      // Calculate winner
+      const voteCounts = {};
+      activeRound.votes?.forEach(v => {
+        if (v.target) {
+          voteCounts[v.target] = (voteCounts[v.target] || 0) + 1;
+        }
+      });
+      
+      const maxVotes = Math.max(0, ...Object.values(voteCounts));
+      const winners = Object.entries(voteCounts)
+        .filter(([, count]) => count === maxVotes)
+        .map(([userId]) => userId);
+      
+      const winner = winners.length === 1 ? winners[0] : null;
+      
+      try {
+        await closeRound(activeRound.id, winner, maxVotes);
+        setRefresh(r => r + 1);
+      } catch (e) {
+        console.error("Error closing round:", e);
+      }
+    }
+  }
+
+  useEffect(() => {
+    checkAndCloseRound();
+  }, [activeRound]);
+
+  if (loading) return <div className="text-center py-8">Loading group...</div>;
+  if (!group) return <div className="text-center py-8">Group not found</div>;
+
+  const timeLeft = activeRound ? 
+    Math.max(0, new Date(activeRound.expires_at).getTime() - Date.now()) : 0;
 
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-black">{g.name}</h1>
-        <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">{g.members.length} members</span>
+        <button 
+          className="px-2 py-1 border-2 border-black"
+          onClick={() => setView("groups")}
+        >
+          ← Back
+        </button>
+        <h1 className="text-2xl font-black">{group.name}</h1>
+        <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
+          {group.group_members?.length || 0} members
+        </span>
       </div>
 
-      {!active && (
+      {/* Active Round or Start Button */}
+      {!activeRound ? (
         <div className="p-3 border-4 border-black bg-yellow-200">
           <div className="font-bold">No active voting right now.</div>
           <button
             className="mt-2 w-full p-3 border-4 border-black font-bold"
-            onClick={async ()=>{
-              const copy = structuredClone(db);
-              const gg = copy.groups[groupId];
-              await issueNewStatement(copy, gg);
-              setDb(copy);
-            }}
+            onClick={handleStartNewRound}
           >
-            Start first circle
+            Start new round
           </button>
         </div>
-      )}
-
-      {active && (
+      ) : (
         <div className="p-3 border-4 border-black">
-          <div className="text-xs mb-1">Voting ends in <b>{humanTime(timeLeft)}</b></div>
-          <div className="font-extrabold text-lg">“{getStatementText(db, active.statementId)}”</div>
-          <VotePanel db={db} setDb={setDb} group={g} round={active} meEmail={meEmail} />
+          <div className="text-xs mb-1">
+            Voting ends in <b>{humanTime(timeLeft)}</b>
+          </div>
+          <div className="font-extrabold text-lg">
+            "{activeRound.statements?.text}"
+          </div>
+          <VotePanel 
+            round={activeRound} 
+            group={group}
+            user={user} 
+            onVoted={() => setRefresh(r => r + 1)}
+          />
         </div>
       )}
 
@@ -426,52 +625,40 @@ function GroupDetail({ db, setDb, groupId, meEmail }) {
       <div className="p-3 border-4 border-black">
         <div className="font-extrabold mb-2">Leaderboard</div>
         <div className="grid gap-1">
-          {Object.entries(g.leaderboard).sort((a,b)=>b[1]-a[1]).map(([em, pts], idx)=> (
-            <div key={em} className="flex items-center gap-2">
-              <span className="w-6 text-right font-bold">{idx+1}.</span>
-              <span className="flex-1">{formatUser(db.users[em] || { email: em })}</span>
-              <span className="px-2 border-2 border-black">{pts} pt{pts===1?"":"s"}</span>
+          {leaderboard.map(({ profiles, points }, idx) => (
+            <div key={profiles.id} className="flex items-center gap-2">
+              <span className="w-6 text-right font-bold">{idx + 1}.</span>
+              <span className="flex-1">
+                {profiles.first_name || profiles.last_name ? 
+                  `${profiles.first_name || ""} ${profiles.last_name || ""}`.trim() : 
+                  profiles.email}
+              </span>
+              <span className="px-2 border-2 border-black">
+                {points} pt{points === 1 ? "" : "s"}
+              </span>
             </div>
           ))}
+          {leaderboard.length === 0 && (
+            <div className="text-sm opacity-70">No points yet</div>
+          )}
         </div>
       </div>
 
-      {/* History with comments */}
+      {/* History */}
       <div className="p-3 border-4 border-black">
         <div className="font-extrabold mb-2">Rounds</div>
         <div className="grid gap-3">
-          {(g.rounds || []).map(r => (
-            <div key={r.id} className={`p-2 border-2 border-black ${r.closed ? "bg-gray-100" : ""}`}>
-              <div className="text-xs opacity-70">{new Date(r.issuedAt).toLocaleString()}</div>
-              <div className="font-bold">“{getStatementText(db, r.statementId)}”</div>
-              <div className="text-sm mt-1">{r.closed ? <i>Finished</i> : <i>Voting in progress…</i>}</div>
-              <div className="mt-2 border-t-2 border-black pt-2">
-                <div className="text-xs font-bold mb-1">Discussion</div>
-                <div className="grid gap-1">
-                  {(r.comments||[]).map(c => (
-                    <div key={c.id} className="text-sm"><b>{formatUser(db.users[c.email]||{email:c.email})}:</b> {c.text}</div>
-                  ))}
-                </div>
-                {r.closed && (
-                  <div className="mt-2 flex gap-2">
-                    <input className="flex-1 p-2 border-2 border-black" placeholder="Add a comment" value={comment} onChange={(e)=>setComment(e.target.value)} />
-                    <button className="px-3 border-2 border-black" onClick={()=>{
-                      if (!comment.trim()) return;
-                      setDb(prev=>{
-                        const copy = structuredClone(prev);
-                        const rr = copy.groups[groupId].rounds.find(x=>x.id===r.id);
-                        rr.comments = rr.comments || [];
-                        rr.comments.push({ id: uid("cmt"), email: meEmail, text: comment.trim(), ts: now() });
-                        return copy;
-                      });
-                      setComment("");
-                    }}>Post</button>
-                  </div>
-                )}
-              </div>
-            </div>
+          {rounds.map(r => (
+            <RoundHistoryItem 
+              key={r.id} 
+              round={r} 
+              user={user}
+              onComment={() => setRefresh(prev => prev + 1)}
+            />
           ))}
-          {(g.rounds||[]).length===0 && <div className="opacity-70 text-sm">No rounds yet.</div>}
+          {rounds.length === 0 && (
+            <div className="opacity-70 text-sm">No rounds yet.</div>
+          )}
         </div>
       </div>
 
@@ -479,153 +666,332 @@ function GroupDetail({ db, setDb, groupId, meEmail }) {
       <div className="p-3 border-4 border-black">
         <div className="font-extrabold mb-2">Members</div>
         <div className="grid gap-2">
-          {g.members.map(em => (
-            <div key={em} className="flex items-center gap-2">
-              <Avatar img={db.users[em]?.imageDataURL} label={formatUser(db.users[em] || { email: em })} />
-              <span className="ml-auto text-xs opacity-70">{em}</span>
+          {group.group_members?.map(({ profiles }) => (
+            <div key={profiles.id} className="flex items-center gap-2">
+              <Avatar 
+                img={profiles.image_url} 
+                label={profiles.first_name || profiles.last_name ? 
+                  `${profiles.first_name || ""} ${profiles.last_name || ""}`.trim() : 
+                  profiles.email}
+              />
+              <span className="ml-auto text-xs opacity-70">{profiles.email}</span>
             </div>
           ))}
         </div>
-        <div className="mt-3"><InviteButton group={g} /></div>
+        <div className="mt-3">
+          <InviteButton groupId={groupId} />
+        </div>
       </div>
     </section>
   );
 }
 
-function getStatementText(db, statementId) {
-  const local = db.statements.find(s => s.id === statementId)?.text;
-  return local || "[statement from server]";
-}
+function VotePanel({ round, group, user, onVoted }) {
+  const userVote = round.votes?.find(v => v.voter === user.id);
+  const [selected, setSelected] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-function VotePanel({ db, setDb, group, round, meEmail }) {
-  const hasVoted = round.votes && Object.prototype.hasOwnProperty.call(round.votes, meEmail);
-  const myVote = hasVoted ? round.votes[meEmail] : null;
-  const [selected, setSelected] = useState(myVote || "");
+  const remainingVotes = (group.group_members?.length || 0) - (round.votes?.length || 0);
 
-  const remainingNeeded = group.members.length - Object.keys(round.votes||{}).length;
+  async function handleSubmit() {
+    if (!selected) return alert("Select an option");
+    
+    setSubmitting(true);
+    try {
+      await submitVote({
+        roundId: round.id,
+        target: selected === "abstain" ? null : selected
+      });
+      onVoted();
+    } catch (e) {
+      alert("Error submitting vote: " + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (userVote) {
+    const targetMember = group.group_members?.find(m => m.profiles.id === userVote.target);
+    const targetName = targetMember ? 
+      `${targetMember.profiles.first_name || ""} ${targetMember.profiles.last_name || ""}`.trim() || 
+      targetMember.profiles.email : 
+      "Abstain";
+    
+    return (
+      <div className="mt-2 text-sm">
+        You voted: <b>{targetName}</b>
+        <div className="text-xs opacity-70 mt-1">
+          Waiting on <b>{remainingVotes}</b> vote(s)...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="text-sm opacity-70">Pick the person this statement fits best, or abstain.</div>
-      {!hasVoted ? (
-        <div className="mt-2 grid gap-2">
-          {group.members.filter(e=>e!==meEmail).map(e => (
-            <label key={e} className="flex items-center gap-2 p-2 border-2 border-black">
-              <input type="radio" name="vote" value={e} checked={selected===e} onChange={()=>setSelected(e)} />
-              <span className="font-bold">{formatUser(db.users[e]||{email:e})}</span>
+      <div className="text-sm opacity-70">
+        Pick the person this statement fits best, or abstain.
+      </div>
+      <div className="mt-2 grid gap-2">
+        {group.group_members
+          ?.filter(m => m.profiles.id !== user.id)
+          .map(m => (
+            <label key={m.profiles.id} className="flex items-center gap-2 p-2 border-2 border-black">
+              <input 
+                type="radio" 
+                name="vote" 
+                value={m.profiles.id} 
+                checked={selected === m.profiles.id} 
+                onChange={() => setSelected(m.profiles.id)} 
+              />
+              <span className="font-bold">
+                {m.profiles.first_name || m.profiles.last_name ? 
+                  `${m.profiles.first_name || ""} ${m.profiles.last_name || ""}`.trim() : 
+                  m.profiles.email}
+              </span>
             </label>
           ))}
-          <label className="flex items-center gap-2 p-2 border-2 border-black">
-            <input type="radio" name="vote" value="abstain" checked={selected==="abstain"} onChange={()=>setSelected("abstain")} />
-            <span className="font-bold">Abstain</span>
-          </label>
-          <button className="p-2 border-2 border-black font-bold" onClick={()=>{
-            if (!selected) return alert("Select an option");
-            setDb(prev=>{
-              const copy = structuredClone(prev);
-              const g = copy.groups[group.id];
-              const r = g.rounds.find(x=>x.id===round.id);
-              r.votes = r.votes || {};
-              r.votes[meEmail] = selected;
-              const total = g.members.length;
-              const current = Object.keys(r.votes).length;
-              if (current >= total) closeRound(copy, g, r);
-              return copy;
-            });
-          }}>Submit vote</button>
-          <div className="text-xs opacity-70">Waiting on <b>{remainingNeeded}</b> vote(s)…</div>
+        <label className="flex items-center gap-2 p-2 border-2 border-black">
+          <input 
+            type="radio" 
+            name="vote" 
+            value="abstain" 
+            checked={selected === "abstain"} 
+            onChange={() => setSelected("abstain")} 
+          />
+          <span className="font-bold">Abstain</span>
+        </label>
+        <button 
+          className="p-2 border-2 border-black font-bold disabled:opacity-60" 
+          onClick={handleSubmit}
+          disabled={submitting}
+        >
+          {submitting ? "Submitting..." : "Submit vote"}
+        </button>
+        <div className="text-xs opacity-70">
+          Waiting on <b>{remainingVotes}</b> vote(s)...
         </div>
-      ) : (
-        <div className="mt-2 text-sm">
-          You voted: <b>{myVote === "abstain" ? "Abstain" : formatUser(db.users[myVote]||{email:myVote})}</b>
-        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoundHistoryItem({ round, user, onComment }) {
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [showComments, setShowComments] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (showComments) loadComments();
+  }, [showComments]);
+
+  async function loadComments() {
+    try {
+      const cmts = await listComments(round.id);
+      setComments(cmts);
+    } catch (e) {
+      console.error("Error loading comments:", e);
+    }
+  }
+
+  async function handleComment() {
+    if (!newComment.trim()) return;
+    
+    setSubmitting(true);
+    try {
+      await createComment({
+        roundId: round.id,
+        text: newComment.trim()
+      });
+      setNewComment("");
+      await loadComments();
+      onComment();
+    } catch (e) {
+      alert("Error posting comment: " + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const isClosed = !!round.round_results?.[0]?.closed_at;
+
+  return (
+    <div className={`p-2 border-2 border-black ${isClosed ? "bg-gray-100" : ""}`}>
+      <div className="text-xs opacity-70">
+        {new Date(round.issued_at).toLocaleString()}
+      </div>
+      <div className="font-bold">
+        "{round.statements?.text}"
+      </div>
+      <div className="text-sm mt-1">
+        {isClosed ? <i>Finished</i> : <i>Voting in progress…</i>}
+      </div>
+      
+      {isClosed && (
+        <>
+          <button
+            className="mt-2 text-xs underline"
+            onClick={() => setShowComments(!showComments)}
+          >
+            {showComments ? "Hide" : "Show"} discussion ({comments.length})
+          </button>
+          
+          {showComments && (
+            <div className="mt-2 border-t-2 border-black pt-2">
+              <div className="text-xs font-bold mb-1">Discussion</div>
+              <div className="grid gap-1">
+                {comments.map(c => (
+                  <div key={c.id} className="text-sm">
+                    <b>
+                      {c.profiles.first_name || c.profiles.last_name ? 
+                        `${c.profiles.first_name || ""} ${c.profiles.last_name || ""}`.trim() : 
+                        c.profiles.email}:
+                    </b> {c.text}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input 
+                  className="flex-1 p-2 border-2 border-black" 
+                  placeholder="Add a comment" 
+                  value={newComment} 
+                  onChange={(e) => setNewComment(e.target.value)} 
+                />
+                <button 
+                  className="px-3 border-2 border-black disabled:opacity-60" 
+                  onClick={handleComment}
+                  disabled={submitting}
+                >
+                  {submitting ? "..." : "Post"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-function closeRound(db, group, round) {
-  if (round.closed) return;
-  round.closed = true;
-  const tally = {};
-  Object.values(round.votes||{}).forEach(v => { if (v && v !== "abstain") tally[v] = (tally[v]||0) + 1; });
-  round.tally = tally;
-  const max = Math.max(0, ...Object.values(tally));
-  const winners = Object.entries(tally).filter(([,c])=>c===max).map(([e])=>e);
-  round.winnerEmails = winners;
-  winners.forEach(e => { group.leaderboard[e] = (group.leaderboard[e]||0) + 1; });
-  group.members.forEach(m => dbAddNotification(db, m, { text: `Round finished in “${group.name}”.`, groupId: group.id }));
-  group.nextIssueAt = now() + WEEK;
-}
-
-async function issueNewStatement(db, group) {
-  if (!group.supabaseId) {
-    alert("Group has no supabaseId yet. Please recreate it so it links to Supabase.");
-    return;
-  }
-  const stmt = await rpcNextStatementForGroup(group.supabaseId);
-  if (!stmt) { alert("Keine unbenutzten Statements in dieser Edition."); return; }
-
-  const newRound = {
-    id: uid("round"),
-    statementId: stmt.id,
-    issuedAt: now(),
-    expiresAt: now() + DAY,
-    votes: {},
-    closed: false,
-    comments: [],
-  };
-  group.rounds = group.rounds || [];
-  group.rounds.unshift(newRound);
-  group.nextIssueAt = null;
-  try { await markStatementUsed(group.supabaseId, stmt.id); } catch (e) { console.error(e); }
-  group.usedStatementIds = Array.from(new Set([...(group.usedStatementIds||[]), stmt.id]));
-  group.members.forEach(m => dbAddNotification(db, m, { text: `New statement in “${group.name}”. Time to vote!`, groupId: group.id }));
-}
-
-function formatUser(u) {
-  if (!u) return "Unknown";
-  if (u.firstName || u.lastName) return `${u.firstName||""} ${u.lastName||""}`.trim();
-  return u.email;
-}
-
-function AdminView({ db, setDb, onExit }) {
-  const [authed, setAuthed] = useState(false);
+/** ===================== ADMIN VIEW ===================== **/
+function AdminView({ onExit }) {
+  const [passwordOk, setPasswordOk] = useState(false);
   const [pw, setPw] = useState("");
+
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+
   const [tab, setTab] = useState("editions");
 
-  const [eds, setEds] = useState(db.editions);
-  const [selEdition, setSelEdition] = useState(eds[0]?.id || "");
-  const [stmts, setStmts] = useState([]);
+  // data
+  const [editions, setEditions] = useState([]);
+  const [edsError, setEdsError] = useState("");
+  const [edsLoading, setEdsLoading] = useState(false);
 
-  useEffect(() => { setEds(db.editions); if (!selEdition && db.editions[0]) setSelEdition(db.editions[0].id); }, [db.editions]);
+  const [selectedEditionId, setSelectedEditionId] = useState(null);
+  const [statements, setStatements] = useState([]);
+  const [stError, setStError] = useState("");
+  const [stLoading, setStLoading] = useState(false);
 
-  async function reloadEditions() {
-    const ed = await listEditions();
-    setEds(ed);
-    setDb(prev => ({ ...prev, editions: ed }));
-    if (!ed.find(e => e.id === selEdition)) setSelEdition(ed[0]?.id || "");
-  }
-  async function reloadStatements(editionId) {
-    if (!editionId) { setStmts([]); return; }
-    const list = await listStatements({ editionId });
-    setStmts(list);
-  }
+  const redirectBase = import.meta.env.DEV ? "http://localhost:5173" : "https://mirrio.app";
 
-  useEffect(() => { if (authed && selEdition) reloadStatements(selEdition); }, [authed, selEdition]);
-
-  if (!authed) {
+  // 1) password gate
+  if (!passwordOk) {
     return (
       <section className="space-y-4">
         <h1 className="text-2xl font-black">Admin</h1>
-        <input className="w-full p-3 border-4 border-black" type="password" placeholder="Password" value={pw} onChange={(e)=>setPw(e.target.value)} />
+        <input 
+          className="w-full p-3 border-4 border-black" 
+          type="password" 
+          placeholder="Password" 
+          value={pw} 
+          onChange={(e) => setPw(e.target.value)} 
+        />
         <div className="grid grid-cols-2 gap-2">
-          <button className="w-full p-3 border-4 border-black font-bold" onClick={()=>{
-            if (pw === "XNAbaubauav1114!!!2") { setAuthed(true); reloadEditions(); } else alert("Incorrect password");
-          }}>Enter</button>
-          <button className="w-full p-3 border-4 border-black" onClick={onExit}>Exit</button>
+          <button 
+            className="w-full p-3 border-4 border-black font-bold" 
+            onClick={() => {
+              if (pw === "XNAbaubauav1114!!!2") setPasswordOk(true); 
+              else alert("Incorrect password");
+            }}
+          >
+            Enter
+          </button>
+          <button className="w-full p-3 border-4 border-black" onClick={onExit}>
+            Exit
+          </button>
         </div>
-        <p className="text-xs opacity-70">Hinweis: Schreibzugriffe funktionieren nur, wenn du mit deinem Admin‑Supabase‑Account eingeloggt bist (RLS).</p>
+      </section>
+    );
+  }
+
+  // 2) supabase auth check
+  useEffect(() => {
+    (async () => {
+      setLoadingAuth(true);
+      try {
+        const u = await getUser();
+        setUser(u);
+        setIsAdmin(u?.id === ADMIN_UUID);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoadingAuth(false);
+      }
+    })();
+  }, [passwordOk]);
+
+  // 3) load data when authed
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      setEdsLoading(true); 
+      setEdsError("");
+      try {
+        const eds = await listEditions();
+        setEditions(eds);
+        if (!selectedEditionId && eds[0]?.id) setSelectedEditionId(eds[0].id);
+      } catch (e) {
+        setEdsError(e.message || "Could not load editions");
+      } finally { 
+        setEdsLoading(false); 
+      }
+    })();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !selectedEditionId) { 
+      setStatements([]); 
+      return; 
+    }
+    (async () => {
+      setStLoading(true); 
+      setStError("");
+      try {
+        const sts = await listStatements({ editionId: selectedEditionId });
+        setStatements(sts);
+      } catch (e) {
+        setStError(e.message || "Could not load statements");
+      } finally { 
+        setStLoading(false); 
+      }
+    })();
+  }, [user, selectedEditionId]);
+
+  // If not signed in
+  if (!loadingAuth && !user) {
+    return (
+      <section className="space-y-4">
+        <h1 className="text-2xl font-black">Admin</h1>
+        <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
+          You must be signed in to view and edit content.
+        </div>
+        <AdminInlineLogin redirectBase={redirectBase} />
+        <button className="px-2 py-1 border-2 border-black" onClick={onExit}>
+          Exit
+        </button>
       </section>
     );
   }
@@ -634,137 +1000,335 @@ function AdminView({ db, setDb, onExit }) {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-black">Admin</h1>
-        <div className="flex gap-2">
-          <button className={`px-2 py-1 border-2 border-black ${tab==="editions"?"bg-black text-white":""}`} onClick={()=>setTab("editions")}>Editions</button>
-          <button className={`px-2 py-1 border-2 border-black ${tab==="statements"?"bg-black text-white":""}`} onClick={()=>setTab("statements")}>Statements</button>
-          <button className="px-2 py-1 border-2 border-black" onClick={()=>{ setAuthed(false); setPw(""); }}>Log out</button>
-          <button className="px-2 py-1 border-2 border-black" onClick={onExit}>Exit Admin</button>
+        <div className="text-xs">
+          {user ? (
+            <>
+              Signed in as <b>{user.email}</b> {isAdmin ? "(admin)" : "(read-only)"}
+            </>
+          ) : (
+            "Not signed in"
+          )}
         </div>
       </div>
 
-      {tab === "editions" && <AdminEditions eds={eds} onReload={reloadEditions} />}
-      {tab === "statements" && <AdminStatements eds={eds} selEdition={selEdition} setSelEdition={setSelEdition} stmts={stmts} reloadStatements={reloadStatements} />}
+      <div className="flex gap-2">
+        <button 
+          className={`px-2 py-1 border-2 border-black ${tab === "editions" ? "bg-black text-white" : ""}`} 
+          onClick={() => setTab("editions")}
+        >
+          Editions
+        </button>
+        <button 
+          className={`px-2 py-1 border-2 border-black ${tab === "statements" ? "bg-black text-white" : ""}`} 
+          onClick={() => setTab("statements")}
+        >
+          Statements
+        </button>
+        <div className="ml-auto flex gap-2">
+          <button 
+            className="px-2 py-1 border-2 border-black" 
+            onClick={async () => { 
+              await supabase.auth.signOut(); 
+              location.reload(); 
+            }}
+          >
+            Sign out
+          </button>
+          <button className="px-2 py-1 border-2 border-black" onClick={onExit}>
+            Exit
+          </button>
+        </div>
+      </div>
+
+      {tab === "editions" && (
+        <AdminEditionsTab
+          editions={editions}
+          loading={edsLoading}
+          error={edsError}
+          isAdmin={isAdmin}
+          onReload={async () => {
+            const eds = await listEditions();
+            setEditions(eds);
+            if (!selectedEditionId && eds[0]?.id) setSelectedEditionId(eds[0].id);
+          }}
+        />
+      )}
+
+      {tab === "statements" && (
+        <AdminStatementsTab
+          editions={editions}
+          selectedEditionId={selectedEditionId}
+          onSelectEdition={setSelectedEditionId}
+          statements={statements}
+          loading={stLoading}
+          error={stError}
+          isAdmin={isAdmin}
+          onReload={async () => {
+            if (!selectedEditionId) return;
+            const sts = await listStatements({ editionId: selectedEditionId });
+            setStatements(sts);
+          }}
+        />
+      )}
     </section>
   );
 }
 
-function AdminEditions({ eds, onReload }) {
+function AdminInlineLogin({ redirectBase }) {
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-bold">E-mail</label>
+      <input 
+        className="w-full p-3 border-4 border-black" 
+        placeholder="you@example.com" 
+        value={email} 
+        onChange={(e) => setEmail(e.target.value)} 
+      />
+      <button
+        className="w-full p-3 border-4 border-black font-bold disabled:opacity-60"
+        disabled={sending}
+        onClick={async () => {
+          if (!email.includes("@")) return alert("Enter a valid email");
+          setSending(true);
+          const { error } = await supabase.auth.signInWithOtp({
+            email: email.trim(),
+            options: { emailRedirectTo: redirectBase },
+          });
+          setSending(false);
+          if (error) return alert(error.message);
+          alert("Magic link sent. Please open it and return to /admin.");
+        }}
+      >
+        {sending ? "Sending…" : "Send Magic Link"}
+      </button>
+      <div className="text-xs opacity-70">
+        After clicking the link, return to <code>/admin</code>.
+      </div>
+    </div>
+  );
+}
+
+function AdminEditionsTab({ editions, loading, error, isAdmin, onReload }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
 
   return (
     <div className="space-y-4">
-      <div className="p-3 border-4 border-black">
-        <div className="font-bold mb-2">Add Edition</div>
-        <div className="grid gap-2">
-          <input className="p-2 border-2 border-black" placeholder="Name" value={name} onChange={(e)=>setName(e.target.value)} />
-          <input className="p-2 border-2 border-black" placeholder="slug (unique, a-z-0-9)" value={slug} onChange={(e)=>setSlug(e.target.value)} />
-          <button className="p-2 border-2 border-black font-bold" onClick={async()=>{
-            if (!name.trim() || !slug.trim()) return alert("Name and slug required");
-            try {
-              await createEdition({ name: name.trim(), slug: slug.trim().toLowerCase(), active: true });
-              setName(""); setSlug("");
-              await onReload();
-            } catch (e) { alert(e.message || "Failed to create edition"); }
-          }}>Create</button>
-        </div>
+      <div className="p-3 border-4 border-black bg-black text-white text-sm">
+        RLS: Only the admin user can write. You can still read if authenticated.
       </div>
+      {error && (
+        <div className="p-2 border-2 border-red-600 text-red-700 text-sm">{error}</div>
+      )}
+      {loading ? (
+        <div>Loading…</div>
+      ) : (
+        <div className="grid gap-2">
+          {editions.map(ed => (
+            <EditionRow key={ed.id} ed={ed} isAdmin={isAdmin} onChanged={onReload} />
+          ))}
+          {editions.length === 0 && <div className="opacity-70">No editions found.</div>}
+        </div>
+      )}
 
-      <div className="grid gap-2">
-        {eds.map(ed => <EditionRow key={ed.id} ed={ed} onReload={onReload} />)}
-        {eds.length === 0 && <div className="opacity-70 text-sm">No editions found.</div>}
+      <div className="border-t-4 border-black pt-3">
+        <div className="font-bold mb-2">Add edition</div>
+        <div className="grid gap-2">
+          <input 
+            className="p-2 border-2 border-black" 
+            placeholder="Name" 
+            value={name} 
+            onChange={(e) => setName(e.target.value)} 
+          />
+          <input 
+            className="p-2 border-2 border-black" 
+            placeholder="slug (unique)" 
+            value={slug} 
+            onChange={(e) => setSlug(e.target.value)} 
+          />
+          <button 
+            className="p-2 border-2 border-black font-bold disabled:opacity-50" 
+            disabled={!isAdmin} 
+            onClick={async () => {
+              if (!isAdmin) return alert("Admin only");
+              if (!name.trim() || !slug.trim()) return alert("Enter name and slug");
+              await createEdition({ name: name.trim(), slug: slug.trim() });
+              setName(""); 
+              setSlug("");
+              await onReload();
+            }}
+          >
+            Create
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function EditionRow({ ed, onReload }) {
+function EditionRow({ ed, isAdmin, onChanged }) {
   const [name, setName] = useState(ed.name);
   const [slug, setSlug] = useState(ed.slug);
   const [active, setActive] = useState(!!ed.active);
+  
   return (
-    <div className="p-3 border-2 border-black grid gap-2">
-      <div className="flex items-center gap-2">
-        <input className="flex-1 p-2 border-2 border-black" value={name} onChange={(e)=>setName(e.target.value)} />
-        <button className="px-2 py-1 border-2 border-black" onClick={async()=>{
-          try { await renameEdition(ed.id, name.trim()); await onReload(); } catch (e) { alert(e.message); }
-        }}>Rename</button>
+    <div className="p-2 border-2 border-black">
+      <div className="text-sm">ID: <code>{ed.id}</code></div>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <input 
+          className="p-2 border-2 border-black" 
+          value={name} 
+          onChange={(e) => setName(e.target.value)} 
+        />
+        <input 
+          className="p-2 border-2 border-black" 
+          value={slug} 
+          onChange={(e) => setSlug(e.target.value)} 
+        />
       </div>
-      <div className="flex items-center gap-2">
-        <input className="flex-1 p-2 border-2 border-black" value={slug} onChange={(e)=>setSlug(e.target.value)} />
-        <button className="px-2 py-1 border-2 border-black" onClick={async()=>{
-          try { await changeEditionSlug(ed.id, slug.trim().toLowerCase()); await onReload(); } catch (e) { alert(e.message); }
-        }}>Change slug</button>
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={active} onChange={async(e)=>{
-            const val = e.target.checked; setActive(val);
-            try { await toggleEditionActive(ed.id, val); await onReload(); } catch (er) { alert(er.message); }
-          }} />
-          <span>Active</span>
+      <div className="mt-2 flex items-center gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <input 
+            type="checkbox" 
+            checked={active} 
+            onChange={(e) => setActive(e.target.checked)} 
+          />
+          Active
         </label>
-        <button className="ml-auto px-2 py-1 border-2 border-black" onClick={async()=>{
-          if (!confirm("Delete this edition? Statements linked to it will remain but might be filtered out by your UI.")) return;
-          try { await deleteEdition(ed.id); await onReload(); } catch (e) { alert(e.message); }
-        }}>Delete</button>
+        <div className="ml-auto flex gap-2">
+          <button 
+            className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+            disabled={!isAdmin} 
+            onClick={async () => {
+              if (!isAdmin) return;
+              await renameEdition(ed.id, name.trim());
+              await changeEditionSlug(ed.id, slug.trim());
+              await toggleEditionActive(ed.id, active);
+              await onChanged();
+            }}
+          >
+            Save
+          </button>
+          <button 
+            className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+            disabled={!isAdmin} 
+            onClick={async () => {
+              if (!isAdmin) return;
+              if (!confirm("Delete edition?")) return;
+              await deleteEdition(ed.id);
+              await onChanged();
+            }}
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function AdminStatements({ eds, selEdition, setSelEdition, stmts, reloadStatements }) {
+function AdminStatementsTab({ editions, selectedEditionId, onSelectEdition, statements, loading, error, isAdmin, onReload }) {
   const [text, setText] = useState("");
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-bold">Edition:</span>
-        <select className="p-2 border-2 border-black" value={selEdition} onChange={async(e)=>{
-          const id = e.target.value; setSelEdition(id); await reloadStatements(id);
-        }}>
-          {eds.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        <label className="text-sm font-bold">Edition</label>
+        <select 
+          className="p-2 border-2 border-black" 
+          value={selectedEditionId || ""} 
+          onChange={(e) => onSelectEdition(e.target.value || null)}
+        >
+          {editions.map(ed => (
+            <option key={ed.id} value={ed.id}>{ed.name}</option>
+          ))}
         </select>
-        <button className="ml-auto px-2 py-1 border-2 border-black" onClick={()=> selEdition && reloadStatements(selEdition)}>Reload</button>
       </div>
 
-      <div className="p-3 border-4 border-black">
-        <div className="font-bold mb-2">Add Statement</div>
+      {error && (
+        <div className="p-2 border-2 border-red-600 text-red-700 text-sm">{error}</div>
+      )}
+      {loading ? (
+        <div>Loading…</div>
+      ) : (
         <div className="grid gap-2">
-          <textarea className="p-2 border-2 border-black" rows="3" placeholder="Statement text" value={text} onChange={(e)=>setText(e.target.value)} />
-          <button className="p-2 border-2 border-black font-bold" onClick={async()=>{
-            if (!selEdition) return alert("Select an edition first");
-            if (!text.trim()) return alert("Text required");
-            try {
-              await createStatement({ text: text.trim(), editionId: selEdition });
-              setText("");
-              await reloadStatements(selEdition);
-            } catch (e) { alert(e.message || "Failed to create statement"); }
-          }}>Create</button>
+          {statements.map(st => (
+            <StatementRow key={st.id} st={st} isAdmin={isAdmin} onChanged={onReload} />
+          ))}
+          {statements.length === 0 && (
+            <div className="opacity-70">No statements in this edition.</div>
+          )}
         </div>
-      </div>
+      )}
 
-      <div className="grid gap-2">
-        {stmts.map(s => <StatementRow key={s.id} s={s} onChanged={()=> reloadStatements(selEdition)} />)}
-        {stmts.length === 0 && <div className="opacity-70 text-sm">No statements in this edition.</div>}
+      <div className="border-t-4 border-black pt-3">
+        <div className="font-bold mb-2">Add statement</div>
+        <div className="grid gap-2">
+          <textarea 
+            className="p-2 border-2 border-black" 
+            rows={3} 
+            placeholder="Statement text…" 
+            value={text} 
+            onChange={(e) => setText(e.target.value)} 
+          />
+          <button 
+            className="p-2 border-2 border-black font-bold disabled:opacity-50" 
+            disabled={!isAdmin || !selectedEditionId} 
+            onClick={async () => {
+              if (!isAdmin) return alert("Admin only");
+              if (!text.trim()) return alert("Enter text");
+              await createStatement({ text: text.trim(), editionId: selectedEditionId });
+              setText("");
+              await onReload();
+            }}
+          >
+            Create
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function StatementRow({ s, onChanged }) {
-  const [text, setText] = useState(s.text);
+function StatementRow({ st, isAdmin, onChanged }) {
+  const [text, setText] = useState(st.text || "");
+  
   return (
-    <div className="p-2 border-2 border-black grid gap-2">
-      <textarea className="p-2 border-2 border-black" rows="3" value={text} onChange={(e)=>setText(e.target.value)} />
-      <div className="flex items-center gap-2">
-        <button className="px-2 py-1 border-2 border-black" onClick={async()=>{
-          try { await updateStatementText(s.id, text.trim()); await onChanged(); } catch (e) { alert(e.message); }
-        }}>Save</button>
-        <button className="ml-auto px-2 py-1 border-2 border-black" onClick={async()=>{
-          if (!confirm("Delete this statement?")) return;
-          try { await deleteStatement(s.id); await onChanged(); } catch (e) { alert(e.message); }
-        }}>Delete</button>
+    <div className="p-2 border-2 border-black">
+      <div className="text-xs opacity-70 mb-1">ID: <code>{st.id}</code></div>
+      <textarea 
+        className="w-full p-2 border-2 border-black" 
+        rows={2} 
+        value={text} 
+        onChange={(e) => setText(e.target.value)} 
+      />
+      <div className="mt-2 flex gap-2 justify-end">
+        <button 
+          className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+          disabled={!isAdmin} 
+          onClick={async () => {
+            if (!isAdmin) return;
+            await updateStatementText(st.id, text.trim());
+            await onChanged();
+          }}
+        >
+          Save
+        </button>
+        <button 
+          className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+          disabled={!isAdmin} 
+          onClick={async () => {
+            if (!isAdmin) return;
+            if (!confirm("Delete statement?")) return;
+            await deleteStatement(st.id);
+            await onChanged();
+          }}
+        >
+          Delete
+        </button>
       </div>
     </div>
   );
