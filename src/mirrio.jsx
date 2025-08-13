@@ -1135,25 +1135,44 @@ function GroupDetail({ groupId, user, setView }) {
   }
 
   async function handleStartNewRound() {
-    try {
-      const stmt = await rpcNextStatementForGroup(groupId);
-      if (!stmt) {
-        alert("Keine unbenutzten Statements in dieser Edition.");
-        return;
-      }
-
-      await createRound({
-        groupId,
-        statementId: stmt.id,
-        expiresIn: DAY
-      });
-
-      await markStatementUsed(groupId, stmt.id);
-      setRefresh(r => r + 1);
-    } catch (e) {
-      alert("Error starting round: " + e.message);
+  try {
+    // Hole das nächste unbenutzte Statement
+    const stmt = await rpcNextStatementForGroup(groupId);
+    
+    // Debug-Ausgabe
+    console.log("Statement from RPC:", stmt);
+    
+    if (!stmt || !stmt.id) {
+      alert("Keine unbenutzten Statements mehr in dieser Edition verfügbar. Bitte kontaktiere den Admin, um mehr Statements hinzuzufügen.");
+      return;
     }
+
+    // Erstelle die neue Runde
+    const round = await createRound({
+      groupId,
+      statementId: stmt.id,
+      expiresIn: DAY
+    });
+    
+    console.log("Created round:", round);
+
+    // Markiere das Statement nur als benutzt, wenn alles erfolgreich war
+    if (round && stmt.id) {
+      try {
+        await markStatementUsed(groupId, stmt.id);
+      } catch (markError) {
+        console.error("Error marking statement as used:", markError);
+        // Nicht kritisch - die Runde wurde erstellt
+      }
+    }
+    
+    // Aktualisiere die Ansicht
+    setRefresh(r => r + 1);
+  } catch (e) {
+    console.error("Full error:", e);
+    alert("Error starting round: " + e.message);
   }
+}
 
   async function checkAndCloseRound() {
     if (!activeRound) return;
