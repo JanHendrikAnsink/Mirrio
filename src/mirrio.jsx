@@ -533,6 +533,7 @@ function ProfileView({ user, profile, onUpdate }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
 
   async function onPick(e) {
     const file = e.target.files?.[0];
