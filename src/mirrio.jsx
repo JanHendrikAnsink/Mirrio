@@ -649,11 +649,14 @@ function AuthView() {
   );
 }
 
+// Aktualisierte ProfileView Komponente mit Supabase Storage
+
 function ProfileView({ user, profile, onUpdate }) {
   const [firstName, setFirstName] = useState(profile?.first_name || "");
   const [lastName, setLastName] = useState(profile?.last_name || "");
   const [imageUrl, setImageUrl] = useState(profile?.image_url || "");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   
   // Password management
   const [showPasswordSection, setShowPasswordSection] = useState(false);
@@ -665,11 +668,107 @@ function ProfileView({ user, profile, onUpdate }) {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // For production, you should upload to Supabase Storage
-    // For now, we'll use data URLs (limited to small images)
-    const reader = new FileReader();
-    reader.onload = () => setImageUrl(reader.result);
-    reader.readAsDataURL(file);
+    // Validate file
+    if (!file.type.startsWith('image/')) {
+      alert("Please select an image file");
+      return;
+    }
+    
+    // Check file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      alert("Image must be smaller than 5MB");
+      return;
+    }
+    
+    setUploading(true);
+    
+    try {
+      // Option 1: Supabase Storage (EMPFOHLEN)
+      // Erstelle einen eindeutigen Dateinamen mit korrekter Ordnerstruktur
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`; // Wichtig: user.id als Ordner!
+      
+      // Upload zu Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('profiles') // Bucket Name
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+      
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        
+        // Fallback zu Data URL wenn Storage nicht konfiguriert
+        if (uploadError.message?.includes('bucket') || uploadError.statusCode === 404) {
+          console.log('Storage not configured, using data URL fallback');
+          
+          // Resize image before converting to data URL
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const img = new Image();
+          
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            img.onload = () => {
+              // Resize to max 200x200
+              const maxDim = 200;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > height) {
+                if (width > maxDim) {
+                  height = (height * maxDim) / width;
+                  width = maxDim;
+                }
+              } else {
+                if (height > maxDim) {
+                  width = (width * maxDim) / height;
+                  height = maxDim;
+                }
+              }
+              
+              canvas.width = width;
+              canvas.height = height;
+              ctx.drawImage(img, 0, 0, width, height);
+              
+              // Convert to data URL with compression
+              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+              
+              // Check size
+              if (compressedDataUrl.length > 65535) { // ~64KB limit for safety
+                alert("Image is too large even after compression. Please choose a smaller image.");
+                setUploading(false);
+                return;
+              }
+              
+              setImageUrl(compressedDataUrl);
+              setUploading(false);
+            };
+            img.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
+        
+        throw uploadError;
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('profiles')
+        .getPublicUrl(filePath);
+      
+      setImageUrl(urlData.publicUrl);
+      
+    } catch (error) {
+      console.error('Error handling image:', error);
+      alert(`Error uploading image: ${error.message}`);
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleSave() {
@@ -685,6 +784,7 @@ function ProfileView({ user, profile, onUpdate }) {
       alert("Profile saved!");
       onUpdate();
     } catch (e) {
+      console.error("Error saving profile:", e);
       alert("Error saving profile: " + e.message);
     } finally {
       setSaving(false);
@@ -710,7 +810,6 @@ function ProfileView({ user, profile, onUpdate }) {
       
       if (error) throw error;
       
-      // Verwende setTimeout um sicherzustellen, dass der Alert angezeigt wird
       setTimeout(() => {
         alert("✅ Password successfully updated!\n\nYou can now sign in with your email and password.");
       }, 100);
@@ -737,7 +836,10 @@ function ProfileView({ user, profile, onUpdate }) {
           <Avatar img={imageUrl} size={64} label={firstName || user.email} />
         </div>
         <div className="col-span-2 text-xs opacity-70">
-          Upload a square image for best results.
+          <div>Square images work best (1:1 ratio)</div>
+          <div>Max size: 5MB</div>
+          <div>Formats: JPG, PNG, GIF, WebP</div>
+          {uploading && <div className="font-bold mt-1">Uploading...</div>}
         </div>
       </div>
       
@@ -760,15 +862,16 @@ function ProfileView({ user, profile, onUpdate }) {
           className="w-full p-3 border-4 border-black" 
           type="file" 
           accept="image/*" 
-          onChange={onPick} 
+          onChange={onPick}
+          disabled={uploading}
         />
         <button 
           className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity" 
           style={{ backgroundColor: '#d8e1fc' }}
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || uploading}
         >
-          {saving ? "Saving..." : "Save Profile"}
+          {saving ? "Saving..." : uploading ? "Uploading image..." : "Save Profile"}
         </button>
       </div>
 
@@ -786,12 +889,6 @@ function ProfileView({ user, profile, onUpdate }) {
             <div className="text-sm opacity-70 mb-2">
               Set a password to enable email/password login in addition to magic links.
             </div>
-            
-            {passwordMessage.text && (
-              <div className={`p-2 border-2 ${passwordMessage.type === 'success' ? 'border-green-600 bg-green-50 text-green-800' : 'border-red-600 bg-red-50 text-red-700'} text-sm font-bold`}>
-                {passwordMessage.text}
-              </div>
-            )}
             
             <label className="block text-sm font-bold">New Password</label>
             <input 
