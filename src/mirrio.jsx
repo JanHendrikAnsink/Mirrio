@@ -78,8 +78,27 @@ export default function Mirrio() {
           } else if (session?.user) {
             console.log('Magic link login successful:', session.user.email);
             setUser(session.user);
-            const prof = await getProfile(session.user.id);
-            setProfile(prof);
+            
+            // Try to load profile, but don't block on failure
+            try {
+              const prof = await getProfile(session.user.id);
+              if (prof) {
+                setProfile(prof);
+              } else {
+                console.log('No profile yet, creating default');
+                // Auto-create profile if it doesn't exist
+                await upsertProfile({
+                  id: session.user.id,
+                  email: session.user.email,
+                  firstName: '',
+                  lastName: '',
+                  imageUrl: ''
+                });
+              }
+            } catch (e) {
+              console.error('Profile handling error:', e);
+              // Continue anyway
+            }
             
             // Clean up URL
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -95,8 +114,25 @@ export default function Mirrio() {
           } else if (session?.user) {
             console.log('Existing session found:', session.user.email);
             setUser(session.user);
-            const prof = await getProfile(session.user.id);
-            setProfile(prof);
+            
+            try {
+              const prof = await getProfile(session.user.id);
+              if (prof) {
+                setProfile(prof);
+              } else {
+                // Auto-create profile if it doesn't exist
+                await upsertProfile({
+                  id: session.user.id,
+                  email: session.user.email,
+                  firstName: '',
+                  lastName: '',
+                  imageUrl: ''
+                });
+              }
+            } catch (e) {
+              console.error('Profile error:', e);
+            }
+            
             if (location.pathname !== "/admin") setView("groups");
           } else {
             console.log('No session found');
@@ -118,19 +154,33 @@ export default function Mirrio() {
       
       if (event === 'SIGNED_IN' && session?.user) {
         setUser(session.user);
+        
+        // Try to load profile, but don't block on failure
         try {
           const prof = await getProfile(session.user.id);
-          setProfile(prof);
+          if (prof) {
+            setProfile(prof);
+          } else {
+            console.log('No profile found, user will need to create one');
+            setProfile(null);
+          }
         } catch (e) {
           console.error('Error loading profile:', e);
+          // Don't block login if profile doesn't exist yet
+          setProfile(null);
         }
-        if (location.pathname !== "/admin") setView("groups");
+        
+        // Important: Set loading to false even if profile fails
         setLoading(false);
+        
+        if (location.pathname !== "/admin") {
+          setView("groups");
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
-        if (location.pathname !== "/admin") setView("login");
         setLoading(false);
+        if (location.pathname !== "/admin") setView("login");
       } else if (event === 'USER_UPDATED' && session?.user) {
         setUser(session.user);
         try {
