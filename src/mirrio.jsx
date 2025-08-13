@@ -897,7 +897,63 @@ function AdminView({ onExit }) {
 
   const redirectBase = import.meta.env.DEV ? "http://localhost:5173" : "https://mirrio.app";
 
-  // 1) password gate
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
+  // 2) supabase auth check
+  useEffect(() => {
+    if (!passwordOk) return; // Condition INSIDE the effect
+    (async () => {
+      setLoadingAuth(true);
+      try {
+        const u = await getUser();
+        setUser(u);
+        setIsAdmin(u?.id === ADMIN_UUID);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoadingAuth(false);
+      }
+    })();
+  }, [passwordOk]);
+
+  // 3) load editions when authed
+  useEffect(() => {
+    if (!passwordOk || !user) return; // Condition INSIDE the effect
+    (async () => {
+      setEdsLoading(true); 
+      setEdsError("");
+      try {
+        const eds = await listEditions();
+        setEditions(eds);
+        if (!selectedEditionId && eds[0]?.id) setSelectedEditionId(eds[0].id);
+      } catch (e) {
+        setEdsError(e.message || "Could not load editions");
+      } finally { 
+        setEdsLoading(false); 
+      }
+    })();
+  }, [passwordOk, user]);
+
+  // 4) load statements when edition selected
+  useEffect(() => {
+    if (!passwordOk || !user || !selectedEditionId) { 
+      setStatements([]); 
+      return; 
+    }
+    (async () => {
+      setStLoading(true); 
+      setStError("");
+      try {
+        const sts = await listStatements({ editionId: selectedEditionId });
+        setStatements(sts);
+      } catch (e) {
+        setStError(e.message || "Could not load statements");
+      } finally { 
+        setStLoading(false); 
+      }
+    })();
+  }, [passwordOk, user, selectedEditionId]);
+
+  // 1) password gate - NOW AFTER ALL HOOKS
   if (!passwordOk) {
     return (
       <section className="space-y-4">
@@ -926,59 +982,6 @@ function AdminView({ onExit }) {
       </section>
     );
   }
-
-  // 2) supabase auth check
-  useEffect(() => {
-    (async () => {
-      setLoadingAuth(true);
-      try {
-        const u = await getUser();
-        setUser(u);
-        setIsAdmin(u?.id === ADMIN_UUID);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoadingAuth(false);
-      }
-    })();
-  }, [passwordOk]);
-
-  // 3) load data when authed
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      setEdsLoading(true); 
-      setEdsError("");
-      try {
-        const eds = await listEditions();
-        setEditions(eds);
-        if (!selectedEditionId && eds[0]?.id) setSelectedEditionId(eds[0].id);
-      } catch (e) {
-        setEdsError(e.message || "Could not load editions");
-      } finally { 
-        setEdsLoading(false); 
-      }
-    })();
-  }, [user]);
-
-  useEffect(() => {
-    if (!user || !selectedEditionId) { 
-      setStatements([]); 
-      return; 
-    }
-    (async () => {
-      setStLoading(true); 
-      setStError("");
-      try {
-        const sts = await listStatements({ editionId: selectedEditionId });
-        setStatements(sts);
-      } catch (e) {
-        setStError(e.message || "Could not load statements");
-      } finally { 
-        setStLoading(false); 
-      }
-    })();
-  }, [user, selectedEditionId]);
 
   // If not signed in
   if (!loadingAuth && !user) {
