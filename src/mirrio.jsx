@@ -15,7 +15,7 @@ import {
   createStatement, updateStatementText, deleteStatement,
   // Groups
   listGroups, getGroup, createGroup, addGroupMember,
-  renameGroup, deleteGroup,
+  renameGroup, deleteGroup, leaveGroup,
   // Rounds
   listRounds, getActiveRound, createRound, closeRound,
   // Votes
@@ -1427,6 +1427,34 @@ function GroupDetail({ groupId, user, setView }) {
                 </div>
               </div>
             )}
+          </div>
+        </>
+      )}
+      
+      {/* Leave Group Section - nur für Nicht-Owner */}
+      {!isOwner && (
+        <>
+          <div className="border-t-4 border-black"></div>
+          <div className="p-3 border-4 border-black">
+            <button
+              className="w-full p-3 border-4 border-black font-bold hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#ffcccc' }}
+              onClick={async () => {
+                if (!confirm(`Möchtest du die Gruppe "${group.name}" wirklich verlassen?`)) {
+                  return;
+                }
+                
+                try {
+                  await leaveGroup(groupId);
+                  alert("Du hast die Gruppe verlassen.");
+                  setView("groups");
+                } catch (e) {
+                  alert("Fehler beim Verlassen der Gruppe: " + e.message);
+                }
+              }}
+            >
+              Gruppe verlassen
+            </button>
           </div>
         </>
       )}

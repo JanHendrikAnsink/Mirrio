@@ -141,28 +141,52 @@ export async function listGroups() {
   const userId = await getUserId();
   if (!userId) throw new Error("Not authenticated");
   
-  // Get groups where user is member
-  const { data, error } = await supabase
+  // Hole ALLE Gruppen und filtere dann
+  const { data: allGroups, error } = await supabase
     .from("groups")
     .select(`
       *,
       editions(name, slug)
     `)
-    .or(`owner.eq.${userId}`)
     .order("created_at", { ascending: false });
   
   if (error) throw error;
   
-  // Filter groups where user is member (since we can't use group_members in RLS)
-  const { data: memberships } = await supabase
+  // Hole alle Mitgliedschaften des Users
+  const { data: memberships, error: memberError } = await supabase
     .from("group_members")
     .select("group_id")
     .eq("user_id", userId);
   
+  if (memberError) {
+    console.error("Error fetching memberships:", memberError);
+  }
+  
   const memberGroupIds = memberships?.map(m => m.group_id) || [];
   
+  // Debug-Ausgabe
+  console.log("User ID:", userId);
+  console.log("Member of groups:", memberGroupIds);
+  console.log("All groups:", allGroups?.map(g => ({ id: g.id, name: g.name, owner: g.owner })));
+  
   // Return groups where user is owner OR member
-  return data.filter(g => g.owner === userId || memberGroupIds.includes(g.id));
+  const userGroups = allGroups.filter(g => 
+    g.owner === userId || memberGroupIds.includes(g.id)
+  );
+  
+  console.log("Filtered groups for user:", userGroups);
+  
+  // Hole die Anzahl der Mitglieder für jede Gruppe
+  for (const group of userGroups) {
+    const { data: members, error: membersError } = await supabase
+      .from("group_members")
+      .select("user_id")
+      .eq("group_id", group.id);
+    
+    group.group_members = members || [];
+  }
+  
+  return userGroups;
 }
 
 export async function getGroup(groupId) {
@@ -263,6 +287,14 @@ export async function getGroupMembers(groupId) {
 }
 
 /** ===================== Group Management ===================== **/
+export async function leaveGroup(groupId) {
+  const userId = await getUserId();
+  if (!userId) throw new Error("Not authenticated");
+  
+  // Nutze removeGroupMember, um sich selbst zu entfernen
+  return removeGroupMember(groupId, userId);
+}
+
 export async function renameGroup(groupId, newName) {
   const { data, error } = await supabase
     .from("groups")
