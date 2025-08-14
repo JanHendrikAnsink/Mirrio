@@ -1828,9 +1828,6 @@ function RoundDetail({ roundId, groupId, user, setView }) {
         <div className="font-extrabold text-lg">
           "{round.statements?.text}"
         </div>
-        <div className="text-sm mt-2 opacity-70">
-          Round ended: {new Date(round.round_results?.[0]?.closed_at).toLocaleString()}
-        </div>
       </div>
 
       {/* Winner */}
@@ -1838,9 +1835,7 @@ function RoundDetail({ roundId, groupId, user, setView }) {
         <div className="p-3 border-4 border-black" style={{ backgroundColor: '#fed89e' }}>
           <div className="font-bold mb-1">🏆 Winner</div>
           <div className="text-lg font-bold">
-            {winnerProfile.first_name || winnerProfile.last_name ? 
-              `${winnerProfile.first_name || ""} ${winnerProfile.last_name || ""}`.trim() : 
-              winnerProfile.email}
+            {`${winnerProfile.first_name || ""} ${winnerProfile.last_name || ""}`.trim() || winnerProfile.email}
           </div>
           <div className="text-sm opacity-70">
             With {round.round_results?.[0]?.votes_count || 0} votes
@@ -1849,52 +1844,41 @@ function RoundDetail({ roundId, groupId, user, setView }) {
       )}
 
       {/* Detailed Voting Results */}
-      <div className="p-3 border-4 border-black">
-        <div className="font-bold mb-2">Voting Breakdown</div>
-        <div className="space-y-2">
-          {sortedResults.map((result, idx) => (
-            <div key={result.profile.id} className="p-2 border-2 border-black">
-              <div className="flex items-center justify-between">
-                <div className="font-bold">
-                  {idx + 1}. {result.profile.first_name || result.profile.email}
-                </div>
-                <div className="text-sm">
-                  {result.receivedVotes.length} vote{result.receivedVotes.length !== 1 ? 's' : ''}
-                </div>
-              </div>
-              {result.receivedVotes.length > 0 && (
-                <div className="text-xs opacity-70 mt-1">
-                  Voted by: {result.receivedVotes.map(voterId => {
-                    const voter = group.group_members.find(m => m.profiles.id === voterId);
-                    return voter?.profiles.first_name || voter?.profiles.email;
-                  }).join(", ")}
-                </div>
-              )}
+<div className="p-3 border-4 border-black">
+  <div className="font-bold mb-2">Voting Breakdown</div>
+  <div className="space-y-2">
+    {sortedResults.map((result, idx) => {
+      const isWinner = result.profile.id === winner && result.receivedVotes.length > 0;
+      const maxVotes = Math.max(...sortedResults.map(r => r.receivedVotes.length));
+      const hasMaxVotes = result.receivedVotes.length === maxVotes && maxVotes > 0;
+      
+      return (
+        <div 
+          key={result.profile.id} 
+          className={`p-2 border-2 border-black ${hasMaxVotes ? 'font-bold' : ''}`}
+          style={{ backgroundColor: hasMaxVotes ? '#fed89e' : 'white' }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-sm">{idx + 1}.</span>
+              <Avatar 
+                img={result.profile.image_url} 
+                size={32}
+              />
+              <span>
+                {`${result.profile.first_name || ""} ${result.profile.last_name || ""}`.trim() || result.profile.email}
+              </span>
+              {hasMaxVotes && <span>👑</span>}
             </div>
-          ))}
+            <div className="text-sm">
+              {result.receivedVotes.length} vote{result.receivedVotes.length !== 1 ? 's' : ''}
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Who voted for whom */}
-      <div className="p-3 border-4 border-black">
-        <div className="font-bold mb-2">Who voted for whom</div>
-        <div className="space-y-1 text-sm">
-          {Object.values(voteCounts).map(voter => {
-            const targetProfile = voter.givenVote ? 
-              group.group_members.find(m => m.profiles.id === voter.givenVote)?.profiles : null;
-            
-            return (
-              <div key={voter.profile.id}>
-                <b>{voter.profile.first_name || voter.profile.email}</b> → {
-                  targetProfile ? 
-                    (targetProfile.first_name || targetProfile.email) : 
-                    "Abstained"
-                }
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      );
+    })}
+  </div>
+</div>
 
       {/* Comments */}
       <div className="p-3 border-4 border-black">
@@ -1906,7 +1890,7 @@ function RoundDetail({ roundId, groupId, user, setView }) {
                 {new Date(c.created_at).toLocaleString()}
               </div>
               <div className="font-bold text-sm">
-                {c.profiles.first_name || c.profiles.email}:
+                {`${c.profiles.first_name || ""} ${c.profiles.last_name || ""}`.trim() || c.profiles.email}:
               </div>
               <div>{c.text}</div>
             </div>
