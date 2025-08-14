@@ -963,25 +963,29 @@ function GroupsView({ user, setView, setActiveGroupId }) {
     }
   }
 
-  async function handleCreateGroup() {
-    if (!name.trim()) return alert("Name required");
-    
-    if (!selectedEditionId) {
-      return alert("Please select an edition for your group");
-    }
-
-    setCreating(true);
-    try {
-      await createGroup({ name: name.trim(), editionId: selectedEditionId });
-      setName("");
-      alert("✅ Group created successfully!");
-      await loadData();
-    } catch (e) {
-      alert("Error creating group: " + e.message);
-    } finally {
-      setCreating(false);
-    }
+async function handleCreateGroup() {
+  if (!name.trim()) return alert("Name required");
+  
+  if (name.trim().length > 18) {
+    return alert("Group name must be max. 18 characters");
   }
+  
+  if (!selectedEditionId) {
+    return alert("Please select an edition for your group");
+  }
+
+  setCreating(true);
+  try {
+    await createGroup({ name: name.trim(), editionId: selectedEditionId });
+    setName("");
+    alert("✅ Group created successfully!");
+    await loadData();
+  } catch (e) {
+    alert("Error creating group: " + e.message);
+  } finally {
+    setCreating(false);
+  }
+}
 
   if (loading) return <div className="text-center py-8">Loading groups...</div>;
 
@@ -1024,54 +1028,62 @@ function GroupsView({ user, setView, setActiveGroupId }) {
         )}
       </div>
 
-      {/* Separator */}
-      <div className="border-t-4 border-black pt-3">
-        {/* Create Group Form */}
-        <div className="space-y-2">
-          <label className="block text-sm font-bold">Create a new group</label>
-          <input 
-            className="w-full p-3 border-4 border-black" 
-            placeholder="Group name" 
-            value={name} 
-            onChange={(e) => setName(e.target.value)} 
-          />
-          
-          {editions.length > 0 && (
-            <>
-              <label className="block text-sm font-bold">Select Edition</label>
-              <select
-                className="w-full p-3 border-4 border-black"
-                value={selectedEditionId}
-                onChange={(e) => setSelectedEditionId(e.target.value)}
-              >
-                {editions.map(ed => (
-                  <option key={ed.id} value={ed.id}>
-                    {ed.name} {ed.slug ? `(${ed.slug})` : ''}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs opacity-70">
-                The edition determines which statements your group will use. This cannot be changed later.
-              </div>
-            </>
-          )}
-          
-          <button
-            className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: '#dce7d0' }}
-            onClick={handleCreateGroup}
-            disabled={creating || editions.length === 0}
-          >
-            {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
-          </button>
-          
-          {editions.length === 0 && (
-            <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
-              No active editions available. Please contact the admin to create editions.
-            </div>
-          )}
+{/* Separator */}
+<div className="border-t-4 border-black pt-3">
+  {/* Create Group Form */}
+  <div className="space-y-2">
+    <label className="block text-sm font-bold">
+      Create a new group 
+      <span className={`ml-2 text-xs ${name.length > 18 ? 'text-red-600' : 'opacity-70'}`}>
+        ({name.length}/18)
+      </span>
+    </label>
+    <input 
+      className={`w-full p-3 border-4 ${name.length > 18 ? 'border-red-600' : 'border-black'}`}
+      placeholder="Group name" 
+      value={name} 
+      onChange={(e) => setName(e.target.value)} 
+    />
+    {name.length > 18 && (
+      <div className="text-xs text-red-600">Name is too long! Max 18 characters.</div>
+    )}
+    
+    {editions.length > 0 && (
+      <>
+        <label className="block text-sm font-bold">Select Edition</label>
+        <select
+          className="w-full p-3 border-4 border-black"
+          value={selectedEditionId}
+          onChange={(e) => setSelectedEditionId(e.target.value)}
+        >
+          {editions.map(ed => (
+            <option key={ed.id} value={ed.id}>
+              {ed.name} {ed.slug ? `(${ed.slug})` : ''}
+            </option>
+          ))}
+        </select>
+        <div className="text-xs opacity-70">
+          The edition determines which statements your group will use. This cannot be changed later.
         </div>
+      </>
+    )}
+    
+    <button
+      className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+      style={{ backgroundColor: '#dce7d0' }}
+      onClick={handleCreateGroup}
+      disabled={creating || editions.length === 0 || name.length > 18}
+    >
+      {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
+    </button>
+    
+    {editions.length === 0 && (
+      <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
+        No active editions available. Please contact the admin to create editions.
       </div>
+    )}
+  </div>
+</div>
     </section>
   );
 }
@@ -1242,24 +1254,29 @@ async function handleStartNewRound() {
   }, [activeRound]);
 
   // Funktionen für Gruppenverwaltung
-  async function handleRenameGroup() {
-    if (!newGroupName.trim()) {
-      alert("Gruppenname darf nicht leer sein");
-      return;
-    }
-    
-    setSaving(true);
-    try {
-      await renameGroup(groupId, newGroupName);
-      setGroup({...group, name: newGroupName});
-      setEditingName(false);
-      alert("Gruppe wurde umbenannt!");
-    } catch (e) {
-      alert("Fehler beim Umbenennen: " + e.message);
-    } finally {
-      setSaving(false);
-    }
+async function handleRenameGroup() {
+  if (!newGroupName.trim()) {
+    alert("Gruppenname darf nicht leer sein");
+    return;
   }
+  
+  if (newGroupName.trim().length > 18) {
+    alert("Gruppenname darf maximal 18 Zeichen lang sein");
+    return;
+  }
+  
+  setSaving(true);
+  try {
+    await renameGroup(groupId, newGroupName);
+    setGroup({...group, name: newGroupName});
+    setEditingName(false);
+    alert("Gruppe wurde umbenannt!");
+  } catch (e) {
+    alert("Fehler beim Umbenennen: " + e.message);
+  } finally {
+    setSaving(false);
+  }
+}
 
   async function handleDeleteGroup() {
     if (!confirm(`Möchtest du die Gruppe "${group.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
@@ -1421,37 +1438,46 @@ async function handleStartNewRound() {
             {showManagement && (
               <div className="space-y-3 mt-3">
                 {/* Gruppe umbenennen */}
-                <div>
-                  <div className="text-sm font-bold mb-1">Gruppe umbenennen</div>
-                  {editingName ? (
-                    <div className="space-y-2">
-                      <input
-                        className="w-full p-2 border-2 border-black"
-                        value={newGroupName}
-                        onChange={(e) => setNewGroupName(e.target.value)}
-                        placeholder="Neuer Gruppenname"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          className="flex-1 p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
-                          style={{ backgroundColor: '#d8e1fc' }}
-                          onClick={handleRenameGroup}
-                          disabled={saving}
-                        >
-                          {saving ? "Speichere..." : "Speichern"}
-                        </button>
-                        <button
-                          className="flex-1 p-2 border-2 border-black hover:opacity-90 transition-opacity"
-                          onClick={() => {
-                            setEditingName(false);
-                            setNewGroupName(group.name);
-                          }}
-                        >
-                          Abbrechen
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
+                {/* Gruppe umbenennen */}
+<div>
+  <div className="text-sm font-bold mb-1">
+    Gruppe umbenennen
+    <span className={`ml-2 text-xs ${newGroupName.length > 18 ? 'text-red-600' : 'opacity-70'}`}>
+      ({newGroupName.length}/18)
+    </span>
+  </div>
+  {editingName ? (
+    <div className="space-y-2">
+      <input
+        className={`w-full p-2 border-2 ${newGroupName.length > 18 ? 'border-red-600' : 'border-black'}`}
+        value={newGroupName}
+        onChange={(e) => setNewGroupName(e.target.value)}
+        placeholder="Neuer Gruppenname"
+      />
+      {newGroupName.length > 18 && (
+        <div className="text-xs text-red-600">Name ist zu lang! Max 18 Zeichen.</div>
+      )}
+      <div className="flex gap-2">
+        <button
+          className="flex-1 p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+          style={{ backgroundColor: '#d8e1fc' }}
+          onClick={handleRenameGroup}
+          disabled={saving || newGroupName.length > 18}
+        >
+          {saving ? "Speichere..." : "Speichern"}
+        </button>
+        <button
+          className="flex-1 p-2 border-2 border-black hover:opacity-90 transition-opacity"
+          onClick={() => {
+            setEditingName(false);
+            setNewGroupName(group.name);
+          }}
+        >
+          Abbrechen
+        </button>
+      </div>
+    </div>
+  ) : (
                     <button
                       className="w-full p-2 border-2 border-black hover:opacity-90 transition-opacity"
                       style={{ backgroundColor: '#d8e1fc' }}
