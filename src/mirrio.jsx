@@ -34,13 +34,24 @@ const ADMIN_UUID = "5744d1ce-d6f5-42fb-9f0e-5e9126b845ca";
 const DAY = 24 * 60 * 60 * 1000;
 
 function humanTime(ms) {
-  if (ms <= 0) return "00:00";
-  const tot = Math.floor(ms / 1000);
-  const h = Math.floor(tot / 3600);
-  const m = Math.floor((tot % 3600) / 60);
-  const s = tot % 60;
-  if (h > 0) return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
-  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  if (ms <= 0) return "0s";
+  
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / (60 * 60 * 24));
+  const hours = Math.floor((totalSeconds % (60 * 60 * 24)) / (60 * 60));
+  const minutes = Math.floor((totalSeconds % (60 * 60)) / 60);
+  const seconds = totalSeconds % 60;
+  
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
 }
 
 function useTicker(interval = 1000) {
@@ -1148,11 +1159,10 @@ function GroupDetail({ groupId, user, setView }) {
   const [group, setGroup] = useState(null);
   const [rounds, setRounds] = useState([]);
   const [activeRound, setActiveRound] = useState(null);
-  const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   
-  // Neue States für Gruppenverwaltung
+  // States für Gruppenverwaltung
   const [showManagement, setShowManagement] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -1166,177 +1176,208 @@ function GroupDetail({ groupId, user, setView }) {
   }, [groupId, refresh]);
 
   async function loadGroupData() {
-  console.log("loadGroupData called for groupId:", groupId); // Debug
-  setLoading(true);
-  try {
-    const [grp, rnds, active, board] = await Promise.all([
-      getGroup(groupId),
-      listRounds(groupId),
-      getActiveRound(groupId),
-      getLeaderboard(groupId)
-    ]);
-    
-    console.log("Active Round:", active); // Debug
-    console.log("Statement:", active?.statements); // Debug
-    console.log("All Rounds:", rnds); // Debug
-    
-    setGroup(grp);
-    setRounds(rnds);
-    setActiveRound(active);
-    setLeaderboard(board);
-    setNewGroupName(grp.name);
-  } catch (e) {
-    console.error("Error loading group:", e);
-  } finally {
-    setLoading(false);
+    setLoading(true);
+    try {
+      const [grp, rnds, active] = await Promise.all([
+        getGroup(groupId),
+        listRounds(groupId),
+        getActiveRound(groupId)
+      ]);
+      
+      setGroup(grp);
+      setRounds(rnds);
+      setActiveRound(active);
+      setNewGroupName(grp.name);
+    } catch (e) {
+      console.error("Error loading group:", e);
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
-async function handleStartNewRound() {
-  try {
-    console.log("Starting new round for group:", groupId);
-    
-    // Hole die Edition ID der Gruppe
-    const editionId = group.edition_id;
-    if (!editionId) {
-      alert("Gruppe hat keine Edition zugewiesen!");
-      return;
-    }
-    
-    // Hole alle Statements der Edition
-    const { data: allStatements, error: stmtError } = await supabase
-      .from("statements")
-      .select("*")
-      .eq("edition_id", editionId);
-    
-    if (stmtError) throw stmtError;
-    
-    // Hole bereits benutzte Statements
-    const { data: usedStatements, error: usedError } = await supabase
-      .from("group_used_statements")
-      .select("statement_id")
-      .eq("group_id", groupId);
-    
-    if (usedError) throw usedError;
-    
-    const usedIds = usedStatements?.map(u => u.statement_id) || [];
-    
-    // Finde unbenutztes Statement
-    const unusedStatements = allStatements.filter(s => !usedIds.includes(s.id));
-    
-    if (unusedStatements.length === 0) {
-      alert("Keine unbenutzten Statements mehr in dieser Edition verfügbar!");
-      return;
-    }
-    
-    // Wähle zufälliges unbenutztes Statement
-    const randomIndex = Math.floor(Math.random() * unusedStatements.length);
-    const stmt = unusedStatements[randomIndex];
-    
-    console.log("Selected statement:", stmt);
-    
-    // Erstelle die neue Runde
-    const round = await createRound({
-      groupId,
-      statementId: stmt.id,
-      expiresIn: DAY
-    });
-    
-    console.log("Created round:", round);
-    
-    // Markiere das Statement als benutzt
-    await markStatementUsed(groupId, stmt.id);
-    
-    // Aktualisiere die Ansicht
-    setRefresh(r => r + 1);
-  } catch (e) {
-    console.error("Error starting round:", e);
-    alert("Error starting round: " + e.message);
-  }
-}
-  async function checkAndCloseRound() {
-    if (!activeRound) return;
-    
-    const now = new Date();
-    const expires = new Date(activeRound.expires_at);
-    
-    if (now > expires || activeRound.votes?.length >= group.group_members?.length) {
-      // Calculate winner
-      const voteCounts = {};
-      activeRound.votes?.forEach(v => {
-        if (v.target) {
-          voteCounts[v.target] = (voteCounts[v.target] || 0) + 1;
-        }
+  async function handleStartNewRound() {
+    try {
+      const editionId = group.edition_id;
+      if (!editionId) {
+        alert("Group has no edition assigned!");
+        return;
+      }
+      
+      const { data: allStatements, error: stmtError } = await supabase
+        .from("statements")
+        .select("*")
+        .eq("edition_id", editionId);
+      
+      if (stmtError) throw stmtError;
+      
+      const { data: usedStatements, error: usedError } = await supabase
+        .from("group_used_statements")
+        .select("statement_id")
+        .eq("group_id", groupId);
+      
+      if (usedError) throw usedError;
+      
+      const usedIds = usedStatements?.map(u => u.statement_id) || [];
+      const unusedStatements = allStatements.filter(s => !usedIds.includes(s.id));
+      
+      if (unusedStatements.length === 0) {
+        alert("No unused statements left in this edition!");
+        return;
+      }
+      
+      const randomIndex = Math.floor(Math.random() * unusedStatements.length);
+      const stmt = unusedStatements[randomIndex];
+      
+      const round = await createRound({
+        groupId,
+        statementId: stmt.id,
+        expiresIn: DAY
       });
       
-      const maxVotes = Math.max(0, ...Object.values(voteCounts));
-      const winners = Object.entries(voteCounts)
-        .filter(([, count]) => count === maxVotes)
-        .map(([userId]) => userId);
-      
-      const winner = winners.length === 1 ? winners[0] : null;
-      
-      try {
-        await closeRound(activeRound.id, winner, maxVotes);
-        setRefresh(r => r + 1);
-      } catch (e) {
-        console.error("Error closing round:", e);
-      }
+      await markStatementUsed(groupId, stmt.id);
+      setRefresh(r => r + 1);
+    } catch (e) {
+      console.error("Error starting round:", e);
+      alert("Error starting round: " + e.message);
     }
   }
 
-  useEffect(() => {
-    checkAndCloseRound();
-  }, [activeRound]);
-
-  // Funktionen für Gruppenverwaltung
-async function handleRenameGroup() {
-  if (!newGroupName.trim()) {
-    alert("Gruppenname darf nicht leer sein");
-    return;
+  async function checkAndCloseRound() {
+  if (!activeRound) return;
+  
+  const now = new Date();
+  const expires = new Date(activeRound.expires_at);
+  
+  // Prüfe ob Round schon geschlossen wurde
+  if (activeRound.round_results && activeRound.round_results.length > 0) {
+    return; // Already closed
   }
   
-  if (newGroupName.trim().length > 18) {
-    alert("Gruppenname darf maximal 18 Zeichen lang sein");
-    return;
-  }
-  
-  setSaving(true);
-  try {
-    await renameGroup(groupId, newGroupName);
-    setGroup({...group, name: newGroupName});
-    setEditingName(false);
-    alert("Gruppe wurde umbenannt!");
-  } catch (e) {
-    alert("Fehler beim Umbenennen: " + e.message);
-  } finally {
-    setSaving(false);
+  if (now > expires || activeRound.votes?.length >= group.group_members?.length) {
+    const voteCounts = {};
+    activeRound.votes?.forEach(v => {
+      if (v.target) {
+        voteCounts[v.target] = (voteCounts[v.target] || 0) + 1;
+      }
+    });
+    
+    const maxVotes = Math.max(0, ...Object.values(voteCounts));
+    const winners = Object.entries(voteCounts)
+      .filter(([, count]) => count === maxVotes)
+      .map(([userId]) => userId);
+    
+    const winner = winners.length === 1 ? winners[0] : null;
+    
+    try {
+      await closeRound(activeRound.id, winner, maxVotes);
+      // Nur EINMAL refreshen nach dem Schließen
+      setTimeout(() => setRefresh(r => r + 1), 1000);
+    } catch (e) {
+      console.error("Error closing round:", e);
+      // Bei Fehler nicht endlos wiederholen
+    }
   }
 }
 
+useEffect(() => {
+  if (activeRound && (!activeRound.round_results || activeRound.round_results.length === 0)) {
+    checkAndCloseRound();
+  }
+}, [activeRound?.votes?.length]);
+
+  async function handleRenameGroup() {
+    if (!newGroupName.trim()) {
+      alert("Group name cannot be empty");
+      return;
+    }
+    
+    if (newGroupName.trim().length > 18) {
+      alert("Group name must be max 18 characters");
+      return;
+    }
+    
+    setSaving(true);
+    try {
+      await renameGroup(groupId, newGroupName);
+      setGroup({...group, name: newGroupName});
+      setEditingName(false);
+      alert("Group renamed!");
+    } catch (e) {
+      alert("Error renaming: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleDeleteGroup() {
-    if (!confirm(`Möchtest du die Gruppe "${group.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+    if (!confirm(`Do you really want to delete the group "${group.name}"? This action cannot be undone.`)) {
       return;
     }
     
     setDeleting(true);
     try {
       await deleteGroup(groupId);
-      alert("Gruppe wurde gelöscht!");
+      alert("Group deleted!");
       setView("groups");
     } catch (e) {
-      alert("Fehler beim Löschen: " + e.message);
+      alert("Error deleting: " + e.message);
       setDeleting(false);
     }
   }
 
+  function getVotingResults() {
+    if (!activeRound || !activeRound.votes) return null;
+    
+    const now = new Date();
+    const expires = new Date(activeRound.expires_at);
+    const isExpired = now > expires;
+    const allVoted = activeRound.votes?.length >= group.group_members?.length;
+    const roundClosed = isExpired || allVoted;
+    
+    if (!roundClosed) return null;
+    
+    const voteCounts = {};
+    group.group_members?.forEach(member => {
+      voteCounts[member.profiles.id] = 0;
+    });
+    
+    activeRound.votes?.forEach(v => {
+      if (v.target && voteCounts[v.target] !== undefined) {
+        voteCounts[v.target]++;
+      }
+    });
+    
+    const results = Object.entries(voteCounts).map(([userId, votes]) => {
+      const member = group.group_members.find(m => m.profiles.id === userId);
+      return {
+        userId,
+        votes,
+        profile: member?.profiles
+      };
+    }).sort((a, b) => b.votes - a.votes);
+    
+    const maxVotes = Math.max(...results.map(r => r.votes));
+    
+    return { results, maxVotes };
+  }
+
+  // Calculate next statement date (7 days from last round or now)
+  function getNextStatementDate() {
+    const lastRound = rounds[0]; // Most recent round
+    const baseDate = lastRound ? new Date(lastRound.issued_at) : new Date();
+    const nextDate = new Date(baseDate.getTime() + (7 * DAY));
+    return nextDate;
+  }
+
+  const nextStatementTime = getNextStatementDate().getTime() - Date.now();
+  const timeLeft = activeRound ? 
+    Math.max(0, new Date(activeRound.expires_at).getTime() - Date.now()) : 0;
+
   if (loading) return <div className="text-center py-8">Loading group...</div>;
   if (!group) return <div className="text-center py-8">Group not found</div>;
 
-  const timeLeft = activeRound ? 
-    Math.max(0, new Date(activeRound.expires_at).getTime() - Date.now()) : 0;
-  
   const isOwner = group.owner === user.id;
+  const votingResults = getVotingResults();
 
   return (
     <section className="space-y-4">
@@ -1353,83 +1394,143 @@ async function handleRenameGroup() {
         </span>
       </div>
 
-      {/* Active Round or Start Button */}
-      {/* Active Round or Start Button */}
-{!activeRound ? (
-  <div className="p-3 border-4 border-black bg-yellow-200">
-    <div className="font-bold">No active voting right now.</div>
-    {isOwner && (
-      <button
-        className="mt-2 w-full p-3 border-4 border-black font-bold"
-        onClick={handleStartNewRound}
-      >
-        Start new round
-      </button>
-    )}
-    {!isOwner && (
-      <div className="mt-2 text-sm opacity-70">
-        Nur der Gruppeninhaber kann neue Rounds starten.
-      </div>
-    )}
-  </div>
-) : (
-  <div className="p-3 border-4 border-black">
-    <div className="text-xs mb-1">
-      Voting ends in <b>{humanTime(timeLeft)}</b>
+{/* Next Statement Countdown - zeigen wenn Voting beendet ist */}
+{activeRound && votingResults && (
+  <div className="p-3 border-4 border-black" style={{ backgroundColor: '#ffe4cc' }}>
+    <div className="text-sm">
+      Next statement drops in: <b>{humanTime(nextStatementTime)}</b>
     </div>
-    <div className="font-extrabold text-lg">
-      {activeRound.statements?.text ? `"${activeRound.statements.text}"` : "Loading statement..."}
-    </div>
-    <VotePanel 
-      round={activeRound} 
-      group={group}
-      user={user} 
-      onVoted={() => setRefresh(r => r + 1)}
-    />
   </div>
 )}
 
-      {/* Leaderboard */}
-      <div className="p-3 border-4 border-black">
-        <div className="font-extrabold mb-2">Leaderboard</div>
-        <div className="grid gap-1">
-          {leaderboard.map(({ profiles, points }, idx) => (
-            <div key={profiles.id} className="flex items-center gap-2">
-              <span className="w-6 text-right font-bold">{idx + 1}.</span>
-              <span className="flex-1">
-                {profiles.first_name || profiles.last_name ? 
-                  `${profiles.first_name || ""} ${profiles.last_name || ""}`.trim() : 
-                  profiles.email}
-              </span>
-              <span className="px-2 border-2 border-black">
-                {points} pt{points === 1 ? "" : "s"}
+    {/* Active Round or Start Button */}
+{!activeRound ? (
+  <>
+    {/* Next Statement Countdown - nur zeigen wenn kein Voting läuft */}
+    <div className="p-3 border-4 border-black" style={{ backgroundColor: '#ffe4cc' }}>
+      <div className="text-sm">
+        Next statement drops in: <b>{humanTime(nextStatementTime)}</b>
+      </div>
+    </div>
+    
+    <div className="p-3 border-4 border-black bg-yellow-200">
+      <div className="font-bold">No active voting right now.</div>
+      {isOwner && (
+        <button
+          className="mt-2 w-full p-3 border-4 border-black font-bold"
+          onClick={handleStartNewRound}
+        >
+          Start new round
+        </button>
+      )}
+      {!isOwner && (
+        <div className="mt-2 text-sm opacity-70">
+          Only the group owner can start new rounds.
+        </div>
+      )}
+    </div>
+  </>
+) : (
+  <div className="p-3 border-4 border-black">
+    {/* Voting countdown wenn Voting läuft und noch nicht beendet */}
+    {!votingResults && (
+      <div className="text-xs mb-1">
+        Voting ends in <b>{humanTime(timeLeft)}</b>
+      </div>
+    )}
+    
+    <div className="font-extrabold text-lg">
+      {activeRound.statements?.text ? `"${activeRound.statements.text}"` : "Loading statement..."}
+    </div>
+    
+    {votingResults ? (
+      <div className="mt-3">
+        <div className="font-bold mb-2">🏆 Voting Results</div>
+        <div className="space-y-1">
+          {votingResults.results.map((result, idx) => (
+            <div 
+              key={result.userId}
+              className={`p-2 border-2 border-black flex items-center justify-between ${
+                result.votes === votingResults.maxVotes && result.votes > 0 ? 'font-bold' : ''
+              }`}
+              style={{ 
+                backgroundColor: result.votes === votingResults.maxVotes && result.votes > 0 ? '#fed89e' : 'white' 
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{idx + 1}.</span>
+                <span>
+                  {result.profile?.first_name || result.profile?.last_name ? 
+                    `${result.profile.first_name || ""} ${result.profile.last_name || ""}`.trim() : 
+                    result.profile?.email}
+                </span>
+                {result.votes === votingResults.maxVotes && result.votes > 0 && (
+                  <span className="text-sm">👑</span>
+                )}
+              </div>
+              <span className="px-2 py-0.5 border border-black text-sm">
+                {result.votes} vote{result.votes !== 1 ? 's' : ''}
               </span>
             </div>
           ))}
-          {leaderboard.length === 0 && (
-            <div className="text-sm opacity-70">No points yet</div>
-          )}
         </div>
       </div>
+    ) : (
+      <VotePanel 
+        round={activeRound} 
+        group={group}
+        user={user} 
+        onVoted={() => setRefresh(r => r + 1)}
+      />
+    )}
+  </div>
+)}
 
-      {/* History */}
-      <div className="p-3 border-4 border-black">
-        <div className="font-extrabold mb-2">Rounds</div>
-        <div className="grid gap-3">
-          {rounds.map(r => (
-            <RoundHistoryItem 
-              key={r.id} 
-              round={r} 
-              user={user}
-              onComment={() => setRefresh(prev => prev + 1)}
-            />
-          ))}
-          {rounds.length === 0 && (
-            <div className="opacity-70 text-sm">No rounds yet.</div>
+      {/* Previous Rounds */}
+<div className="p-3 border-4 border-black">
+  <div className="font-extrabold mb-2">Previous Rounds</div>
+  <div className="grid gap-3">
+    {rounds.map(r => {
+      const isClosed = !!r.round_results?.[0]?.closed_at;
+      
+      // Zeige nur geschlossene Rounds, aber NICHT die aktuelle aktive Round
+      if (!isClosed || (activeRound && r.id === activeRound.id)) return null;
+      
+      const winner = r.round_results?.[0]?.winner;
+      const winnerProfile = group.group_members?.find(m => m.profiles.id === winner)?.profiles;
+      
+      return (
+        <div key={r.id} className="p-2 border-2 border-black">
+          <div className="text-xs opacity-70">
+            {new Date(r.issued_at).toLocaleDateString()}
+          </div>
+          <div className="font-bold">
+            "{r.statements?.text}"
+          </div>
+          {winner && winnerProfile && (
+            <div className="text-sm mt-1">
+              Winner: <b>{winnerProfile.first_name || winnerProfile.last_name ? 
+                `${winnerProfile.first_name || ""} ${winnerProfile.last_name || ""}`.trim() : 
+                winnerProfile.email}</b> 👑
+            </div>
           )}
+          <button
+            className="mt-2 text-xs underline"
+            onClick={() => {/* TODO: Navigate to detail page */}}
+          >
+            View details →
+          </button>
         </div>
-      </div>
-
+      );
+    })}
+    {rounds.filter(r => {
+      const isClosed = !!r.round_results?.[0]?.closed_at;
+      return isClosed && (!activeRound || r.id !== activeRound.id);
+    }).length === 0 && (
+      <div className="opacity-70 text-sm">No completed rounds yet.</div>
+    )}
+  </div>
+</div>
       {/* Members */}
       <div className="p-3 border-4 border-black">
         <div className="font-extrabold mb-2">Members</div>
@@ -1456,87 +1557,84 @@ async function handleRenameGroup() {
         </div>
       </div>
 
-      {/* Group Management Section - nur für Owner, ganz unten mit Trenner */}
+      {/* Group Management Section - nur für Owner */}
       {isOwner && (
         <>
           <div className="border-t-4 border-black"></div>
           <div className="p-3 border-4 border-black bg-gray-50">
             <div className="flex items-center justify-between mb-2">
-              <div className="font-bold">Gruppenverwaltung</div>
+              <div className="font-bold">Group Management</div>
               <button
                 className="text-sm underline"
                 onClick={() => setShowManagement(!showManagement)}
               >
-                {showManagement ? "Ausblenden" : "Anzeigen"}
+                {showManagement ? "Hide" : "Show"}
               </button>
             </div>
             
             {showManagement && (
               <div className="space-y-3 mt-3">
-                {/* Gruppe umbenennen */}
-                {/* Gruppe umbenennen */}
-<div>
-  <div className="text-sm font-bold mb-1">
-    Gruppe umbenennen
-    <span className={`ml-2 text-xs ${newGroupName.length > 18 ? 'text-red-600' : 'opacity-70'}`}>
-      ({newGroupName.length}/18)
-    </span>
-  </div>
-  {editingName ? (
-    <div className="space-y-2">
-      <input
-        className={`w-full p-2 border-2 ${newGroupName.length > 18 ? 'border-red-600' : 'border-black'}`}
-        value={newGroupName}
-        onChange={(e) => setNewGroupName(e.target.value)}
-        placeholder="Neuer Gruppenname"
-      />
-      {newGroupName.length > 18 && (
-        <div className="text-xs text-red-600">Name ist zu lang! Max 18 Zeichen.</div>
-      )}
-      <div className="flex gap-2">
-        <button
-          className="flex-1 p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
-          style={{ backgroundColor: '#d8e1fc' }}
-          onClick={handleRenameGroup}
-          disabled={saving || newGroupName.length > 18}
-        >
-          {saving ? "Speichere..." : "Speichern"}
-        </button>
-        <button
-          className="flex-1 p-2 border-2 border-black hover:opacity-90 transition-opacity"
-          onClick={() => {
-            setEditingName(false);
-            setNewGroupName(group.name);
-          }}
-        >
-          Abbrechen
-        </button>
-      </div>
-    </div>
-  ) : (
+                <div>
+                  <div className="text-sm font-bold mb-1">
+                    Rename group
+                    <span className={`ml-2 text-xs ${newGroupName.length > 18 ? 'text-red-600' : 'opacity-70'}`}>
+                      ({newGroupName.length}/18)
+                    </span>
+                  </div>
+                  {editingName ? (
+                    <div className="space-y-2">
+                      <input
+                        className={`w-full p-2 border-2 ${newGroupName.length > 18 ? 'border-red-600' : 'border-black'}`}
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder="New group name"
+                      />
+                      {newGroupName.length > 18 && (
+                        <div className="text-xs text-red-600">Name too long! Max 18 characters.</div>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          className="flex-1 p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+                          style={{ backgroundColor: '#d8e1fc' }}
+                          onClick={handleRenameGroup}
+                          disabled={saving || newGroupName.length > 18}
+                        >
+                          {saving ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          className="flex-1 p-2 border-2 border-black hover:opacity-90 transition-opacity"
+                          onClick={() => {
+                            setEditingName(false);
+                            setNewGroupName(group.name);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
                     <button
                       className="w-full p-2 border-2 border-black hover:opacity-90 transition-opacity"
                       style={{ backgroundColor: '#d8e1fc' }}
                       onClick={() => setEditingName(true)}
                     >
-                      Umbenennen
+                      Rename
                     </button>
                   )}
                 </div>
                 
-                {/* Gruppe löschen */}
                 <div>
-                  <div className="text-sm font-bold mb-1 text-red-600">Gefahrenzone</div>
+                  <div className="text-sm font-bold mb-1 text-red-600">Danger Zone</div>
                   <button
                     className="w-full p-2 border-2 border-black font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
                     style={{ backgroundColor: '#ffcccc' }}
                     onClick={handleDeleteGroup}
                     disabled={deleting}
                   >
-                    {deleting ? "Lösche..." : "Gruppe löschen"}
+                    {deleting ? "Deleting..." : "Delete group"}
                   </button>
                   <div className="text-xs opacity-70 mt-1">
-                    Diese Aktion löscht alle Rounds, Votes, Kommentare und Punkte dauerhaft.
+                    This will permanently delete all rounds, votes, comments and points.
                   </div>
                 </div>
               </div>
@@ -1554,20 +1652,20 @@ async function handleRenameGroup() {
               className="w-full p-3 border-4 border-black font-bold hover:opacity-90 transition-opacity"
               style={{ backgroundColor: '#ffcccc' }}
               onClick={async () => {
-                if (!confirm(`Möchtest du die Gruppe "${group.name}" wirklich verlassen?`)) {
+                if (!confirm(`Do you really want to leave the group "${group.name}"?`)) {
                   return;
                 }
                 
                 try {
                   await leaveGroup(groupId);
-                  alert("Du hast die Gruppe verlassen.");
+                  alert("You left the group.");
                   setView("groups");
                 } catch (e) {
-                  alert("Fehler beim Verlassen der Gruppe: " + e.message);
+                  alert("Error leaving group: " + e.message);
                 }
               }}
             >
-              Gruppe verlassen
+              Leave group
             </button>
           </div>
         </>
@@ -1666,7 +1764,7 @@ function VotePanel({ round, group, user, onVoted }) {
   );
 }
 
-function RoundHistoryItem({ round, user, onComment }) {
+function RoundHistoryItem({ round, user, group, onComment }) {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [showComments, setShowComments] = useState(false);
@@ -1705,6 +1803,8 @@ function RoundHistoryItem({ round, user, onComment }) {
   }
 
   const isClosed = !!round.round_results?.[0]?.closed_at;
+  const winner = round.round_results?.[0]?.winner;
+  const winnerProfile = group?.group_members?.find(m => m.profiles.id === winner)?.profiles;
 
   return (
     <div className={`p-2 border-2 border-black ${isClosed ? "bg-gray-100" : ""}`}>
@@ -1715,7 +1815,20 @@ function RoundHistoryItem({ round, user, onComment }) {
         "{round.statements?.text}"
       </div>
       <div className="text-sm mt-1">
-        {isClosed ? <i>Finished</i> : <i>Voting in progress…</i>}
+        {isClosed ? (
+          <div>
+            <i>Finished</i>
+            {winner && winnerProfile && (
+              <span className="ml-2">
+                Winner: <b>{winnerProfile.first_name || winnerProfile.last_name ? 
+                  `${winnerProfile.first_name || ""} ${winnerProfile.last_name || ""}`.trim() : 
+                  winnerProfile.email}</b> 👑
+              </span>
+            )}
+          </div>
+        ) : (
+          <i>Voting in progress…</i>
+        )}
       </div>
       
       {isClosed && (

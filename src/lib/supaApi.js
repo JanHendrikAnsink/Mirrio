@@ -393,24 +393,44 @@ export async function listRounds(groupId) {
 }
 
 export async function getActiveRound(groupId) {
+  // Hole alle Rounds der Gruppe
   const { data: rounds, error } = await supabase
     .from("rounds")
     .select(`
       *,
       statements(id, text),
       votes(voter, target),
-      round_results(closed_at)
+      round_results(closed_at, winner, votes_count)
     `)
     .eq("group_id", groupId)
-    .gt("expires_at", new Date().toISOString())
-    .order("issued_at", { ascending: false });
+    .order("issued_at", { ascending: false })
+    .limit(1);
   
-  if (error) throw error;
+  if (error) {
+    console.error("Error getting active round:", error);
+    throw error;
+  }
+  
   if (!rounds || rounds.length === 0) return null;
   
-  // Return first round without round_results
-  const activeRound = rounds.find(r => !r.round_results || r.round_results.length === 0);
-  return activeRound || null;
+  const latestRound = rounds[0];
+  
+  // Check if round is closed
+  const isClosed = latestRound.round_results && latestRound.round_results.length > 0;
+  
+  if (isClosed) {
+    return null; // No active round if latest is closed
+  }
+  
+  // Check if expired
+  const now = new Date();
+  const expires = new Date(latestRound.expires_at);
+  
+  if (now > expires) {
+    return null; // Expired, should be closed
+  }
+  
+  return latestRound;
 }
 
 export async function createRound({ groupId, statementId, expiresIn = 24 * 60 * 60 * 1000 }) {
@@ -433,6 +453,18 @@ export async function createRound({ groupId, statementId, expiresIn = 24 * 60 * 
 }
 
 export async function closeRound(roundId, winner, votesCount) {
+  // Prüfe zuerst ob schon ein round_result existiert
+  const { data: existing } = await supabase
+    .from("round_results")
+    .select("*")
+    .eq("round_id", roundId)
+    .single();
+  
+  if (existing) {
+    console.log("Round already closed");
+    return existing;
+  }
+
   const { data, error } = await supabase
     .from("round_results")
     .insert({
@@ -444,7 +476,10 @@ export async function closeRound(roundId, winner, votesCount) {
     .select()
     .single();
   
-  if (error) throw error;
+  if (error) {
+    console.error("Error closing round:", error);
+    throw error;
+  }
   
   // Update points if there's a winner
   if (winner) {
@@ -455,7 +490,11 @@ export async function closeRound(roundId, winner, votesCount) {
       .single();
     
     if (round) {
-      await incrementPoints(winner, round.group_id, 1);
+      try {
+        await incrementPoints(winner, round.group_id, 1);
+      } catch (e) {
+        console.error("Error updating points:", e);
+      }
     }
   }
   
