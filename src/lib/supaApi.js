@@ -388,7 +388,12 @@ export async function listRounds(groupId) {
     .eq("group_id", groupId)
     .order("issued_at", { ascending: false });
   
-  if (error) throw error;
+  if (error) {
+    console.error("Error loading rounds:", error);
+    throw error;
+  }
+  
+  console.log("Loaded rounds:", data); // Debug
   return data;
 }
 

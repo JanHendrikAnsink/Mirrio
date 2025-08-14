@@ -1159,6 +1159,7 @@ function GroupDetail({ groupId, user, setView }) {
   const [group, setGroup] = useState(null);
   const [rounds, setRounds] = useState([]);
   const [activeRound, setActiveRound] = useState(null);
+  const [activeRoundId, setActiveRoundId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   
@@ -1361,13 +1362,18 @@ useEffect(() => {
     return { results, maxVotes };
   }
 
-  // Calculate next statement date (7 days from last round or now)
-  function getNextStatementDate() {
-    const lastRound = rounds[0]; // Most recent round
-    const baseDate = lastRound ? new Date(lastRound.issued_at) : new Date();
-    const nextDate = new Date(baseDate.getTime() + (7 * DAY));
-    return nextDate;
+  // Calculate next statement date (48 hours from last round)
+function getNextStatementDate() {
+  const lastRound = rounds[0]; // Most recent round
+  if (!lastRound) {
+    // Keine vorherige Round, nächster Drop in 48h
+    return new Date(Date.now() + (48 * 60 * 60 * 1000));
   }
+  
+  const baseDate = new Date(lastRound.issued_at);
+  const nextDate = new Date(baseDate.getTime() + (48 * 60 * 60 * 1000)); // 48 Stunden
+  return nextDate;
+}
 
   const nextStatementTime = getNextStatementDate().getTime() - Date.now();
   const timeLeft = activeRound ? 
@@ -1486,15 +1492,17 @@ useEffect(() => {
   </div>
 )}
 
-      {/* Previous Rounds */}
+{/* Previous Rounds */}
 <div className="p-3 border-4 border-black">
   <div className="font-extrabold mb-2">Previous Rounds</div>
   <div className="grid gap-3">
     {rounds.map(r => {
       const isClosed = !!r.round_results?.[0]?.closed_at;
       
-      // Zeige nur geschlossene Rounds, aber NICHT die aktuelle aktive Round
-      if (!isClosed || (activeRound && r.id === activeRound.id)) return null;
+      console.log("Round:", r.id, "Closed:", isClosed, "Active:", activeRound?.id);
+      
+      if (!isClosed) return null;
+      if (activeRound && r.id === activeRound.id) return null;
       
       const winner = r.round_results?.[0]?.winner;
       const winnerProfile = group.group_members?.find(m => m.profiles.id === winner)?.profiles;
@@ -1505,18 +1513,25 @@ useEffect(() => {
             {new Date(r.issued_at).toLocaleDateString()}
           </div>
           <div className="font-bold">
-            "{r.statements?.text}"
+            {r.statements?.text ? `"${r.statements.text}"` : <i>No statement</i>}
           </div>
-          {winner && winnerProfile && (
+          {winner && winnerProfile ? (
             <div className="text-sm mt-1">
               Winner: <b>{winnerProfile.first_name || winnerProfile.last_name ? 
                 `${winnerProfile.first_name || ""} ${winnerProfile.last_name || ""}`.trim() : 
                 winnerProfile.email}</b> 👑
             </div>
+          ) : (
+            <div className="text-sm mt-1 opacity-70">
+              {winner ? "Winner data not found" : "No winner (tie)"}
+            </div>
           )}
           <button
             className="mt-2 text-xs underline"
-            onClick={() => {/* TODO: Navigate to detail page */}}
+            onClick={() => {
+              setView("round-detail");
+              setActiveRoundId(r.id);
+            }}
           >
             View details →
           </button>
@@ -1530,7 +1545,14 @@ useEffect(() => {
       <div className="opacity-70 text-sm">No completed rounds yet.</div>
     )}
   </div>
+  
+  <div className="mt-2 p-2 bg-gray-100 text-xs">
+    <div>Total rounds: {rounds.length}</div>
+    <div>Closed rounds: {rounds.filter(r => r.round_results?.[0]?.closed_at).length}</div>
+    <div>Active round ID: {activeRound?.id || "none"}</div>
+  </div>
 </div>
+
       {/* Members */}
       <div className="p-3 border-4 border-black">
         <div className="font-extrabold mb-2">Members</div>
@@ -1670,6 +1692,229 @@ useEffect(() => {
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+function RoundDetail({ roundId, groupId, user, setView }) {
+  const [round, setRound] = useState(null);
+  const [group, setGroup] = useState(null);
+  const [votes, setVotes] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    loadRoundData();
+  }, [roundId]);
+
+  async function loadRoundData() {
+    setLoading(true);
+    try {
+      // Hole Round mit allen Details
+      const { data: roundData } = await supabase
+        .from("rounds")
+        .select(`
+          *,
+          statements(text),
+          round_results(winner, votes_count, closed_at)
+        `)
+        .eq("id", roundId)
+        .single();
+      
+      setRound(roundData);
+      
+      // Hole Gruppe
+      const grp = await getGroup(groupId);
+      setGroup(grp);
+      
+      // Hole alle Votes mit Voter und Target Namen
+      const votesData = await getVotes(roundId);
+      setVotes(votesData);
+      
+      // Hole Kommentare
+      const cmts = await listComments(roundId);
+      setComments(cmts);
+      
+    } catch (e) {
+      console.error("Error loading round:", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleComment() {
+    if (!newComment.trim()) return;
+    
+    setSubmitting(true);
+    try {
+      await createComment({
+        roundId: roundId,
+        text: newComment.trim()
+      });
+      setNewComment("");
+      await loadRoundData();
+    } catch (e) {
+      alert("Error posting comment: " + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return <div className="text-center py-8">Loading round details...</div>;
+  if (!round) return <div className="text-center py-8">Round not found</div>;
+
+  // Berechne Voting-Statistiken
+  const voteCounts = {};
+  group?.group_members?.forEach(member => {
+    voteCounts[member.profiles.id] = {
+      profile: member.profiles,
+      receivedVotes: [],
+      givenVote: null
+    };
+  });
+  
+  votes?.forEach(v => {
+    if (v.target && voteCounts[v.target]) {
+      voteCounts[v.target].receivedVotes.push(v.voter);
+    }
+    if (voteCounts[v.voter]) {
+      voteCounts[v.voter].givenVote = v.target;
+    }
+  });
+
+  const sortedResults = Object.values(voteCounts)
+    .sort((a, b) => b.receivedVotes.length - a.receivedVotes.length);
+  
+  const winner = round.round_results?.[0]?.winner;
+  const winnerProfile = group?.group_members?.find(m => m.profiles.id === winner)?.profiles;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button 
+          className="px-2 py-1 border-2 border-black"
+          onClick={() => setView("group")}
+        >
+          ← Back to group
+        </button>
+        <h1 className="text-2xl font-black">Round Details</h1>
+      </div>
+
+      {/* Statement */}
+      <div className="p-3 border-4 border-black">
+        <div className="text-xs opacity-70 mb-1">
+          {new Date(round.issued_at).toLocaleString()}
+        </div>
+        <div className="font-extrabold text-lg">
+          "{round.statements?.text}"
+        </div>
+        <div className="text-sm mt-2 opacity-70">
+          Round ended: {new Date(round.round_results?.[0]?.closed_at).toLocaleString()}
+        </div>
+      </div>
+
+      {/* Winner */}
+      {winnerProfile && (
+        <div className="p-3 border-4 border-black" style={{ backgroundColor: '#fed89e' }}>
+          <div className="font-bold mb-1">🏆 Winner</div>
+          <div className="text-lg font-bold">
+            {winnerProfile.first_name || winnerProfile.last_name ? 
+              `${winnerProfile.first_name || ""} ${winnerProfile.last_name || ""}`.trim() : 
+              winnerProfile.email}
+          </div>
+          <div className="text-sm opacity-70">
+            With {round.round_results?.[0]?.votes_count || 0} votes
+          </div>
+        </div>
+      )}
+
+      {/* Detailed Voting Results */}
+      <div className="p-3 border-4 border-black">
+        <div className="font-bold mb-2">Voting Breakdown</div>
+        <div className="space-y-2">
+          {sortedResults.map((result, idx) => (
+            <div key={result.profile.id} className="p-2 border-2 border-black">
+              <div className="flex items-center justify-between">
+                <div className="font-bold">
+                  {idx + 1}. {result.profile.first_name || result.profile.email}
+                </div>
+                <div className="text-sm">
+                  {result.receivedVotes.length} vote{result.receivedVotes.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+              {result.receivedVotes.length > 0 && (
+                <div className="text-xs opacity-70 mt-1">
+                  Voted by: {result.receivedVotes.map(voterId => {
+                    const voter = group.group_members.find(m => m.profiles.id === voterId);
+                    return voter?.profiles.first_name || voter?.profiles.email;
+                  }).join(", ")}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Who voted for whom */}
+      <div className="p-3 border-4 border-black">
+        <div className="font-bold mb-2">Who voted for whom</div>
+        <div className="space-y-1 text-sm">
+          {Object.values(voteCounts).map(voter => {
+            const targetProfile = voter.givenVote ? 
+              group.group_members.find(m => m.profiles.id === voter.givenVote)?.profiles : null;
+            
+            return (
+              <div key={voter.profile.id}>
+                <b>{voter.profile.first_name || voter.profile.email}</b> → {
+                  targetProfile ? 
+                    (targetProfile.first_name || targetProfile.email) : 
+                    "Abstained"
+                }
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Comments */}
+      <div className="p-3 border-4 border-black">
+        <div className="font-bold mb-2">Discussion ({comments.length})</div>
+        <div className="space-y-2">
+          {comments.map(c => (
+            <div key={c.id} className="p-2 border border-gray-300">
+              <div className="text-xs opacity-70">
+                {new Date(c.created_at).toLocaleString()}
+              </div>
+              <div className="font-bold text-sm">
+                {c.profiles.first_name || c.profiles.email}:
+              </div>
+              <div>{c.text}</div>
+            </div>
+          ))}
+          {comments.length === 0 && (
+            <div className="text-sm opacity-70">No comments yet. Be the first!</div>
+          )}
+        </div>
+        
+        <div className="mt-3 flex gap-2">
+          <input 
+            className="flex-1 p-2 border-2 border-black" 
+            placeholder="Add a comment..." 
+            value={newComment} 
+            onChange={(e) => setNewComment(e.target.value)} 
+          />
+          <button 
+            className="px-3 py-2 border-2 border-black font-bold disabled:opacity-60"
+            style={{ backgroundColor: '#d8e1fc' }}
+            onClick={handleComment}
+            disabled={submitting}
+          >
+            {submitting ? "..." : "Post"}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
