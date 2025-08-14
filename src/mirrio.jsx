@@ -298,7 +298,7 @@ export default function Mirrio() {
         setMenuOpen={setMenuOpen}
       />
 
-      {/* Mobile Menu Overlay */}
+{/* Mobile Menu Overlay */}
 {menuOpen && (
   <div className="fixed inset-0 z-50 bg-white">
     <div className="flex flex-col h-full">
@@ -319,48 +319,53 @@ export default function Mirrio() {
           <>
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#fed89e' }}
               onClick={() => { setMenuOpen(false); setView("login"); }}
             >
               Login / Sign Up
             </button>
-            <div className="pt-4">
-              <button 
-                className="w-full p-3 border-4 border-black font-bold text-left"
-                onClick={() => { setMenuOpen(false); setView("imprint"); }}
-              >
-                Contact and Imprint
-              </button>
-            </div>
+            <button 
+              className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#d8e1fc' }}
+              onClick={() => { setMenuOpen(false); setView("imprint"); }}
+            >
+              Contact and Imprint
+            </button>
           </>
         ) : (
           <>
             {/* Hauptmenü für eingeloggte Nutzer */}
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#d8e1fc' }}
               onClick={() => { setMenuOpen(false); setView("groups"); }}
             >
               My Groups
             </button>
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#dce7d0' }}
               onClick={() => { setMenuOpen(false); setView("profile"); }}
             >
               Edit Profile
             </button>
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#ffd4e5' }}
               onClick={() => { setMenuOpen(false); setView("support"); }}
             >
-              Make a donation
+              Made a donation
             </button>
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#ffe4cc' }}
               onClick={() => { setMenuOpen(false); setView("imprint"); }}
             >
               Contact and Imprint
             </button>
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
+              style={{ backgroundColor: '#ffcccc' }}
               onClick={() => { 
                 setMenuOpen(false); 
                 supabase.auth.signOut(); 
