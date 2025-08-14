@@ -31,7 +31,7 @@ import {
 } from "./lib/supaApi";
 
 const ADMIN_UUID = "5744d1ce-d6f5-42fb-9f0e-5e9126b845ca";
-const DAY = 24 * 60 * 60 * 1000;
+const DAY = 2 * 60 * 1000;
 
 function humanTime(ms) {
   if (ms <= 0) return "0s";
