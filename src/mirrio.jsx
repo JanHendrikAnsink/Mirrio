@@ -1732,10 +1732,16 @@ function RoundHistoryItem({ round, user, onComment }) {
 function HomeView({ onGetStarted }) {
   return (
     <section className="space-y-6">
-      <div className="text-center py-8">
+      <div className="text-center py-4">
         <h1 className="text-4xl font-black">
           A game that shows who you are.
         </h1>
+        <p className="text-lg mt-4">
+          Mirrio brings people closer while you grow as a friend and partner—thanks to a{' '}
+          <strong style={{ backgroundColor: '#d8e1fc', padding: '2px 4px' }}>playful</strong>,{' '}
+          <strong style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>honest</strong>{' '}
+          feedback loop, one round at a time.
+        </p>
       </div>
 
       <div className="space-y-4">
@@ -1752,7 +1758,7 @@ function HomeView({ onGetStarted }) {
           <div className="flex items-start gap-3">
             <span className="font-black text-xl">2.</span>
             <div>
-              <strong>Read a statement</strong> like <em>"Who loves <span style={{ backgroundColor: '#fed89e', padding: '2px 4px' }}>hugs</span> the most?"</em>
+              <strong>Read a </strong><strong style={{ backgroundColor: '#fed89e', padding: '2px 4px' }}>statement</strong> like <em>"Who loves hugs the most?"</em>
             </div>
           </div>
         </div>
@@ -1776,21 +1782,16 @@ function HomeView({ onGetStarted }) {
         </div>
       </div>
 
-      <div className="text-center space-y-4 py-6">
+      <div className="text-center space-y-4 py-3">
         <p className="text-lg">
+          Every <strong style={{ backgroundColor: '#fed89e', padding: '2px 4px' }}>7 days</strong>, a new statement drops — and everyone gets notified.{' '}
           Each round is quick. Each answer is a{' '}
           <strong style={{ backgroundColor: '#ffd4e5', padding: '2px 4px' }}>surprise</strong>.{' '}
           Each point brings you closer.
         </p>
-
-        <p className="text-lg">
-          Mirrio brings people closer by turning honest reflection into{' '}
-          <strong style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>personal growth</strong>{' '}
-          — helping each of us notice patterns, deepen empathy, and strengthen our relationships, one round at a time.
-        </p>
         
         <p className="text-lg font-bold">
-          With Mirrio, you hold up a mirror –{' '}
+          With Mirrio, you hold up a mirror —{' '}
           <span style={{ backgroundColor: '#d8e1fc', padding: '2px 4px' }}>playfully</span>,{' '}
           <span style={{ backgroundColor: '#dce7d0', padding: '2px 4px' }}>lovingly</span>,{' '}
           <span style={{ backgroundColor: '#ffe4cc', padding: '2px 4px' }}>together</span>.
