@@ -1533,24 +1533,23 @@ function VotePanel({ round, group, user, onVoted }) {
         Pick the person this statement fits best, or abstain.
       </div>
       <div className="mt-2 grid gap-2">
-        {group.group_members
-          ?.filter(m => m.profiles.id !== user.id)
-          .map(m => (
-            <label key={m.profiles.id} className="flex items-center gap-2 p-2 border-2 border-black">
-              <input 
-                type="radio" 
-                name="vote" 
-                value={m.profiles.id} 
-                checked={selected === m.profiles.id} 
-                onChange={() => setSelected(m.profiles.id)} 
-              />
-              <span className="font-bold">
-                {m.profiles.first_name || m.profiles.last_name ? 
-                  `${m.profiles.first_name || ""} ${m.profiles.last_name || ""}`.trim() : 
-                  m.profiles.email}
-              </span>
-            </label>
-          ))}
+        {group.group_members?.map(m => (
+          <label key={m.profiles.id} className="flex items-center gap-2 p-2 border-2 border-black">
+            <input 
+              type="radio" 
+              name="vote" 
+              value={m.profiles.id} 
+              checked={selected === m.profiles.id} 
+              onChange={() => setSelected(m.profiles.id)} 
+            />
+            <span className="font-bold">
+              {m.profiles.first_name || m.profiles.last_name ? 
+                `${m.profiles.first_name || ""} ${m.profiles.last_name || ""}`.trim() : 
+                m.profiles.email}
+              {m.profiles.id === user.id && " (You)"}
+            </span>
+          </label>
+        ))}
         <label className="flex items-center gap-2 p-2 border-2 border-black">
           <input 
             type="radio" 
