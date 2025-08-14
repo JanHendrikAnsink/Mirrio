@@ -393,38 +393,24 @@ export async function listRounds(groupId) {
 }
 
 export async function getActiveRound(groupId) {
-  // Zuerst alle aktiven Rounds holen
   const { data: rounds, error } = await supabase
     .from("rounds")
     .select(`
       *,
       statements(id, text),
-      votes(voter, target)
+      votes(voter, target),
+      round_results(closed_at)
     `)
     .eq("group_id", groupId)
     .gt("expires_at", new Date().toISOString())
     .order("issued_at", { ascending: false });
   
   if (error) throw error;
-  
-  // Dann filtern wir die ohne round_results
   if (!rounds || rounds.length === 0) return null;
   
-  // Check welche Rounds noch nicht geschlossen sind
-  for (const round of rounds) {
-    const { data: results } = await supabase
-      .from("round_results")
-      .select("*")
-      .eq("round_id", round.id)
-      .single();
-    
-    if (!results) {
-      // Diese Round ist noch aktiv
-      return round;
-    }
-  }
-  
-  return null; // Keine aktive Round gefunden
+  // Return first round without round_results
+  const activeRound = rounds.find(r => !r.round_results || r.round_results.length === 0);
+  return activeRound || null;
 }
 
 export async function createRound({ groupId, statementId, expiresIn = 24 * 60 * 60 * 1000 }) {

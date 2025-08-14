@@ -1118,40 +1118,75 @@ function GroupDetail({ groupId, user, setView }) {
   }, [groupId, refresh]);
 
   async function loadGroupData() {
-    setLoading(true);
-    try {
-      const [grp, rnds, active, board] = await Promise.all([
-        getGroup(groupId),
-        listRounds(groupId),
-        getActiveRound(groupId),
-        getLeaderboard(groupId)
-      ]);
-      
-      setGroup(grp);
-      setRounds(rnds);
-      setActiveRound(active);
-      setLeaderboard(board);
-      setNewGroupName(grp.name); // Setze initialen Namen
-    } catch (e) {
-      console.error("Error loading group:", e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleStartNewRound() {
+  console.log("loadGroupData called for groupId:", groupId); // Debug
+  setLoading(true);
   try {
-    // Hole das nächste unbenutzte Statement
-    const stmt = await rpcNextStatementForGroup(groupId);
+    const [grp, rnds, active, board] = await Promise.all([
+      getGroup(groupId),
+      listRounds(groupId),
+      getActiveRound(groupId),
+      getLeaderboard(groupId)
+    ]);
     
-    // Debug-Ausgabe
-    console.log("Statement from RPC:", stmt);
+    console.log("Active Round:", active); // Debug
+    console.log("Statement:", active?.statements); // Debug
+    console.log("All Rounds:", rnds); // Debug
     
-    if (!stmt || !stmt.id) {
-      alert("Keine unbenutzten Statements mehr in dieser Edition verfügbar. Bitte kontaktiere den Admin, um mehr Statements hinzuzufügen.");
+    setGroup(grp);
+    setRounds(rnds);
+    setActiveRound(active);
+    setLeaderboard(board);
+    setNewGroupName(grp.name);
+  } catch (e) {
+    console.error("Error loading group:", e);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleStartNewRound() {
+  try {
+    console.log("Starting new round for group:", groupId);
+    
+    // Hole die Edition ID der Gruppe
+    const editionId = group.edition_id;
+    if (!editionId) {
+      alert("Gruppe hat keine Edition zugewiesen!");
       return;
     }
-
+    
+    // Hole alle Statements der Edition
+    const { data: allStatements, error: stmtError } = await supabase
+      .from("statements")
+      .select("*")
+      .eq("edition_id", editionId);
+    
+    if (stmtError) throw stmtError;
+    
+    // Hole bereits benutzte Statements
+    const { data: usedStatements, error: usedError } = await supabase
+      .from("group_used_statements")
+      .select("statement_id")
+      .eq("group_id", groupId);
+    
+    if (usedError) throw usedError;
+    
+    const usedIds = usedStatements?.map(u => u.statement_id) || [];
+    
+    // Finde unbenutztes Statement
+    const unusedStatements = allStatements.filter(s => !usedIds.includes(s.id));
+    
+    if (unusedStatements.length === 0) {
+      alert("Keine unbenutzten Statements mehr in dieser Edition verfügbar!");
+      return;
+    }
+    
+    // Wähle zufälliges unbenutztes Statement
+    const randomIndex = Math.floor(Math.random() * unusedStatements.length);
+    const stmt = unusedStatements[randomIndex];
+    
+    console.log("Selected statement:", stmt);
+    
     // Erstelle die neue Runde
     const round = await createRound({
       groupId,
@@ -1160,25 +1195,17 @@ function GroupDetail({ groupId, user, setView }) {
     });
     
     console.log("Created round:", round);
-
-    // Markiere das Statement nur als benutzt, wenn alles erfolgreich war
-    if (round && stmt.id) {
-      try {
-        await markStatementUsed(groupId, stmt.id);
-      } catch (markError) {
-        console.error("Error marking statement as used:", markError);
-        // Nicht kritisch - die Runde wurde erstellt
-      }
-    }
+    
+    // Markiere das Statement als benutzt
+    await markStatementUsed(groupId, stmt.id);
     
     // Aktualisiere die Ansicht
     setRefresh(r => r + 1);
   } catch (e) {
-    console.error("Full error:", e);
+    console.error("Error starting round:", e);
     alert("Error starting round: " + e.message);
   }
 }
-
   async function checkAndCloseRound() {
     if (!activeRound) return;
     
@@ -1274,39 +1301,40 @@ function GroupDetail({ groupId, user, setView }) {
       </div>
 
       {/* Active Round or Start Button */}
-      {!activeRound ? (
-        <div className="p-3 border-4 border-black bg-yellow-200">
-          <div className="font-bold">No active voting right now.</div>
-          {isOwner && (
-            <button
-              className="mt-2 w-full p-3 border-4 border-black font-bold"
-              onClick={handleStartNewRound}
-            >
-              Start new round
-            </button>
-          )}
-          {!isOwner && (
-            <div className="mt-2 text-sm opacity-70">
-              Nur der Gruppeninhaber kann neue Rounds starten.
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="p-3 border-4 border-black">
-          <div className="text-xs mb-1">
-            Voting ends in <b>{humanTime(timeLeft)}</b>
-          </div>
-          <div className="font-extrabold text-lg">
-            "{activeRound.statements?.text}"
-          </div>
-          <VotePanel 
-            round={activeRound} 
-            group={group}
-            user={user} 
-            onVoted={() => setRefresh(r => r + 1)}
-          />
-        </div>
-      )}
+      {/* Active Round or Start Button */}
+{!activeRound ? (
+  <div className="p-3 border-4 border-black bg-yellow-200">
+    <div className="font-bold">No active voting right now.</div>
+    {isOwner && (
+      <button
+        className="mt-2 w-full p-3 border-4 border-black font-bold"
+        onClick={handleStartNewRound}
+      >
+        Start new round
+      </button>
+    )}
+    {!isOwner && (
+      <div className="mt-2 text-sm opacity-70">
+        Nur der Gruppeninhaber kann neue Rounds starten.
+      </div>
+    )}
+  </div>
+) : (
+  <div className="p-3 border-4 border-black">
+    <div className="text-xs mb-1">
+      Voting ends in <b>{humanTime(timeLeft)}</b>
+    </div>
+    <div className="font-extrabold text-lg">
+      {activeRound.statements?.text ? `"${activeRound.statements.text}"` : "Loading statement..."}
+    </div>
+    <VotePanel 
+      round={activeRound} 
+      group={group}
+      user={user} 
+      onVoted={() => setRefresh(r => r + 1)}
+    />
+  </div>
+)}
 
       {/* Leaderboard */}
       <div className="p-3 border-4 border-black">
