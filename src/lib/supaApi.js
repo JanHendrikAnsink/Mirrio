@@ -177,14 +177,12 @@ export async function listGroups() {
   console.log("Filtered groups for user:", userGroups);
   
   // Hole die Anzahl der Mitglieder für jede Gruppe
-  for (const group of userGroups) {
-    const { data: members, error: membersError } = await supabase
-      .from("group_members")
-      .select("user_id")
-      .eq("group_id", group.id);
-    
-    group.group_members = members || [];
-  }
+for (const group of userGroups) {
+  const { data: members, error: membersError } = await supabase
+    .rpc('get_group_members', { group_id_param: group.id });
+  
+  group.group_members = members || [];
+}
   
   return userGroups;
 }

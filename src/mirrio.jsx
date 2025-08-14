@@ -351,7 +351,7 @@ export default function Mirrio() {
               className="w-full p-3 border-4 border-black font-bold text-left"
               onClick={() => { setMenuOpen(false); setView("support"); }}
             >
-              Made a donation
+              Make a donation
             </button>
             <button 
               className="w-full p-3 border-4 border-black font-bold text-left"
@@ -991,7 +991,7 @@ function GroupsView({ user, setView, setActiveGroupId }) {
             <div className="flex items-center gap-2">
               <div className="font-extrabold text-lg">{g.name}</div>
               <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
-                {g.group_members?.length || 1} member{(g.group_members?.length || 1) !== 1 ? 's' : ''}
+                {g.group_members?.length || 0} member{g.group_members?.length !== 1 ? 's' : ''}
               </span>
             </div>
             <div className="text-xs mt-1 opacity-70">
@@ -1264,7 +1264,7 @@ function GroupDetail({ groupId, user, setView }) {
         </button>
         <h1 className="text-2xl font-black">{group.name}</h1>
         <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
-          {group.group_members?.length || 0} members
+          {group.group_members?.length || 0} member{group.group_members?.length !== 1 ? 's' : ''}
         </span>
       </div>
 
@@ -1761,7 +1761,7 @@ function SupportView({ onBack }) {
         >
           ← Back
         </button>
-        <h1 className="text-2xl font-black">Made a donation</h1>
+        <h1 className="text-2xl font-black">Make a donation</h1>
       </div>
 
       <div className="space-y-6">
