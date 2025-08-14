@@ -67,6 +67,7 @@ export default function Mirrio() {
   const [profile, setProfile] = useState(null);
   const [view, setView] = useState(() => location.pathname === "/admin" ? "admin" : "home");
   const [activeGroupId, setActiveGroupId] = useState(null);
+  const [activeRoundId, setActiveRoundId] = useState(null); // NEU HINZUFÜGEN
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -407,8 +408,21 @@ export default function Mirrio() {
           <GroupsView user={user} setView={setView} setActiveGroupId={setActiveGroupId} />
         )}
         {view === "group" && activeGroupId && user && (
-          <GroupDetail groupId={activeGroupId} user={user} setView={setView} />
-        )}
+  <GroupDetail 
+    groupId={activeGroupId} 
+    user={user} 
+    setView={setView}
+    setActiveRoundId={setActiveRoundId}
+  />
+)}
+{view === "round-detail" && activeRoundId && activeGroupId && user && (
+  <RoundDetail 
+    roundId={activeRoundId}
+    groupId={activeGroupId}
+    user={user}
+    setView={setView}
+  />
+)}
         {view === "support" && <SupportView onBack={() => setView(user ? "groups" : "home")} />}
         {view === "imprint" && <ImprintView onBack={() => setView(user ? "groups" : "home")} />}
         {view === "admin" && (
@@ -1155,11 +1169,10 @@ function InviteButton({ groupId }) {
   );
 }
 
-function GroupDetail({ groupId, user, setView }) {
+function GroupDetail({ groupId, user, setView, setActiveRoundId }) {
   const [group, setGroup] = useState(null);
   const [rounds, setRounds] = useState([]);
   const [activeRound, setActiveRound] = useState(null);
-  const [activeRoundId, setActiveRoundId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   
@@ -1175,6 +1188,7 @@ function GroupDetail({ groupId, user, setView }) {
   useEffect(() => {
     loadGroupData();
   }, [groupId, refresh]);
+  
 
   async function loadGroupData() {
     setLoading(true);
@@ -1494,12 +1508,22 @@ function getNextStatementDate() {
 
 {/* Previous Rounds */}
 <div className="p-3 border-4 border-black">
-  <div className="font-extrabold mb-2">Previous Rounds</div>
+  <div className="font-extrabold mb-2">
+    Previous Rounds {rounds.filter(r => {
+      const isClosed = !!r.round_results?.[0]?.closed_at;
+      return isClosed && (!activeRound || r.id !== activeRound.id);
+    }).length > 0 && (
+      <span className="text-sm font-normal">
+        ({rounds.filter(r => {
+          const isClosed = !!r.round_results?.[0]?.closed_at;
+          return isClosed && (!activeRound || r.id !== activeRound.id);
+        }).length})
+      </span>
+    )}
+  </div>
   <div className="grid gap-3">
     {rounds.map(r => {
       const isClosed = !!r.round_results?.[0]?.closed_at;
-      
-      console.log("Round:", r.id, "Closed:", isClosed, "Active:", activeRound?.id);
       
       if (!isClosed) return null;
       if (activeRound && r.id === activeRound.id) return null;
@@ -1544,12 +1568,6 @@ function getNextStatementDate() {
     }).length === 0 && (
       <div className="opacity-70 text-sm">No completed rounds yet.</div>
     )}
-  </div>
-  
-  <div className="mt-2 p-2 bg-gray-100 text-xs">
-    <div>Total rounds: {rounds.length}</div>
-    <div>Closed rounds: {rounds.filter(r => r.round_results?.[0]?.closed_at).length}</div>
-    <div>Active round ID: {activeRound?.id || "none"}</div>
   </div>
 </div>
 

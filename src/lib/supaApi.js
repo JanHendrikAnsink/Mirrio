@@ -378,23 +378,40 @@ export async function deleteGroup(groupId) {
 
 /** ===================== Rounds ===================== **/
 export async function listRounds(groupId) {
-  const { data, error } = await supabase
+  // Erst Rounds holen
+  const { data: rounds, error: roundsError } = await supabase
     .from("rounds")
     .select(`
       *,
-      statements(id, text),
-      round_results(winner, votes_count, closed_at)
+      statements(id, text)
     `)
     .eq("group_id", groupId)
     .order("issued_at", { ascending: false });
   
-  if (error) {
-    console.error("Error loading rounds:", error);
-    throw error;
+  if (roundsError) {
+    console.error("Error loading rounds:", roundsError);
+    throw roundsError;
   }
   
-  console.log("Loaded rounds:", data); // Debug
-  return data;
+  // Dann round_results separat holen
+  if (rounds && rounds.length > 0) {
+    const roundIds = rounds.map(r => r.id);
+    
+    const { data: results, error: resultsError } = await supabase
+      .from("round_results")
+      .select("*")
+      .in("round_id", roundIds);
+    
+    console.log("Loaded round_results separately:", results);
+    
+    // Merge die Ergebnisse
+    rounds.forEach(round => {
+      round.round_results = results?.filter(r => r.round_id === round.id) || [];
+    });
+  }
+  
+  console.log("Final rounds with results:", rounds);
+  return rounds;
 }
 
 export async function getActiveRound(groupId) {
