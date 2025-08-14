@@ -1,5 +1,5 @@
 // src/mirrio.jsx – Vollständige Supabase Integration
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -104,155 +104,122 @@ export default function Mirrio() {
     };
   }, []);
 
-  // Auth state management
-  useEffect(() => {
-    const initAuth = async () => {
-      setLoading(true);
-      try {
-        // Check for auth params in URL (from magic link)
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-        
-        if (accessToken) {
-          console.log('Magic link token detected, processing...');
-          // Let Supabase handle the token
-          const { data: { session }, error } = await supabase.auth.getSession();
-          
-          if (error) {
-            console.error('Error processing magic link:', error);
-            setError(error.message);
-          } else if (session?.user) {
-            console.log('Magic link login successful:', session.user.email);
-            setUser(session.user);
-            
-            // Try to load profile, but don't block on failure
-            try {
-              const prof = await getProfile(session.user.id);
-              if (prof) {
-                setProfile(prof);
-              } else {
-                console.log('No profile yet, creating default');
-                // Auto-create profile if it doesn't exist
-                await upsertProfile({
-                  id: session.user.id,
-                  email: session.user.email,
-                  firstName: '',
-                  lastName: '',
-                  imageUrl: ''
-                });
-              }
-            } catch (e) {
-              console.error('Profile handling error:', e);
-              // Continue anyway
-            }
-            
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
-            if (location.pathname !== "/admin") setView("groups");
-          }
-        } else {
-          // Normal session check
-          const { data: { session }, error } = await supabase.auth.getSession();
-          
-          if (error) {
-            console.error('Session error:', error);
-          } else if (session?.user) {
-            console.log('Existing session found:', session.user.email);
-            setUser(session.user);
-            
-            try {
-              const prof = await getProfile(session.user.id);
-              if (prof) {
-                setProfile(prof);
-              } else {
-                // Auto-create profile if it doesn't exist
-                await upsertProfile({
-                  id: session.user.id,
-                  email: session.user.email,
-                  firstName: '',
-                  lastName: '',
-                  imageUrl: ''
-                });
-              }
-            } catch (e) {
-              console.error('Profile error:', e);
-            }
-            
-            if (location.pathname !== "/admin") setView("groups");
-          } else {
-            console.log('No session found');
-            // Set view to homepage for non-logged in users
-            if (location.pathname !== "/admin") setView("home");
-          }
-        }
-      } catch (e) {
-        console.error("Auth init error:", e);
-        setError(e.message || "Authentication error");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initAuth();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
+// Auth state management
+useEffect(() => {
+  let mounted = true;
+  let isInitialLoad = true;
+  
+  const initAuth = async () => {
+    setLoading(true);
+    try {
+      // Check for auth params in URL (from magic link)
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
       
-      if (event === 'SIGNED_IN' && session?.user) {
+      // Get session only once
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (!mounted) return;
+      
+      if (error) {
+        console.error('Session error:', error);
+        if (location.pathname !== "/admin") setView("home");
+      } else if (session?.user) {
+        console.log('Session found:', session.user.email);
         setUser(session.user);
         
-        // Try to load profile, but don't block on failure
-        try {
-          const prof = await getProfile(session.user.id);
-          if (prof) {
+        // Load profile asynchronously without blocking
+        getProfile(session.user.id).then(prof => {
+          if (mounted && prof) {
             setProfile(prof);
-          } else {
-            console.log('No profile found, user will need to create one');
-            setProfile(null);
           }
-        } catch (e) {
-          console.error('Error loading profile:', e);
-          // Don't block login if profile doesn't exist yet
-          setProfile(null);
-        }
-        
-        // Important: Set loading to false even if profile fails
-        setLoading(false);
+        }).catch(e => {
+          console.error('Profile error:', e);
+          // Create default profile if needed
+          if (mounted && session?.user) {
+            upsertProfile({
+              id: session.user.id,
+              email: session.user.email,
+              firstName: '',
+              lastName: '',
+              imageUrl: ''
+            }).catch(console.error);
+          }
+        });
         
         if (location.pathname !== "/admin") {
           setView("groups");
         }
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
-        if (location.pathname !== "/admin") setView("login");
-      } else if (event === 'USER_UPDATED' && session?.user) {
-        setUser(session.user);
-        try {
-          const prof = await getProfile(session.user.id);
-          setProfile(prof);
-        } catch (e) {
-          console.error('Error updating profile:', e);
+      } else {
+        console.log('No session found');
+        if (location.pathname !== "/admin") {
+          setView("home");
         }
       }
-    });
-
-    // Fallback: Check session after a delay if still loading
-    const timeoutId = setTimeout(() => {
-      if (loading) {
-        console.log('Timeout reached, forcing session check...');
-        initAuth();
+      
+      // Clean up URL if needed
+      if (accessToken) {
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
-    }, 3000);
+    } catch (e) {
+      console.error("Auth init error:", e);
+      if (mounted) {
+        setError(e.message || "Authentication error");
+      }
+    } finally {
+      if (mounted) {
+        setLoading(false);
+        isInitialLoad = false;
+      }
+    }
+  };
 
-    return () => {
-      subscription.unsubscribe();
-      clearTimeout(timeoutId);
-    };
-  }, []);
+  // Initial auth check
+  initAuth();
+
+  // Listen for auth changes - but skip initial event
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    if (!mounted) return;
+    
+    // Skip the initial session event to prevent double loading
+    if (isInitialLoad && event === 'INITIAL_SESSION') {
+      console.log('Skipping initial session event');
+      return;
+    }
+    
+    console.log('Auth state changed:', event);
+    
+    // Only react to actual sign in/out events
+    if (event === 'SIGNED_IN' && session?.user) {
+      setUser(session.user);
+      
+      // Load profile asynchronously
+      getProfile(session.user.id).then(prof => {
+        if (mounted && prof) setProfile(prof);
+      }).catch(console.error);
+      
+      if (location.pathname !== "/admin") {
+        setView("groups");
+      }
+    } else if (event === 'SIGNED_OUT') {
+      setUser(null);
+      setProfile(null);
+      if (location.pathname !== "/admin") {
+        setView("login");
+      }
+    } else if (event === 'USER_UPDATED' && session?.user) {
+      setUser(session.user);
+      getProfile(session.user.id).then(prof => {
+        if (mounted && prof) setProfile(prof);
+      }).catch(console.error);
+    }
+  });
+
+  return () => {
+    mounted = false;
+    subscription.unsubscribe();
+  };
+}, []); // Empty dependencies - runs only once
 
   // Handle invite links
   useEffect(() => {
@@ -966,9 +933,13 @@ function GroupsView({ user, setView, setActiveGroupId }) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [groupVotingStatus, setGroupVotingStatus] = useState({});
+  const loadedRef = useRef(false); // Track if already loaded
 
   useEffect(() => {
-    loadData();
+    if (!loadedRef.current) {
+      loadData();
+      loadedRef.current = true;
+    }
   }, []);
 
   async function loadData() {
