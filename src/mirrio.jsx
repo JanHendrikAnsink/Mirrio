@@ -940,6 +940,7 @@ function GroupsView({ user, setView, setActiveGroupId }) {
   const [selectedEditionId, setSelectedEditionId] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [groupVotingStatus, setGroupVotingStatus] = useState({});
 
   useEffect(() => {
     loadData();
@@ -956,6 +957,29 @@ function GroupsView({ user, setView, setActiveGroupId }) {
       if (activeEditions.length > 0 && !selectedEditionId) {
         setSelectedEditionId(activeEditions[0].id);
       }
+      
+      // Check voting status for each group
+      const votingStatus = {};
+      for (const group of grps) {
+        try {
+          const activeRound = await getActiveRound(group.id);
+          if (activeRound) {
+            const userVote = activeRound.votes?.find(v => v.voter === user.id);
+            votingStatus[group.id] = {
+              hasActiveVoting: true,
+              hasVoted: !!userVote
+            };
+          } else {
+            votingStatus[group.id] = {
+              hasActiveVoting: false,
+              hasVoted: false
+            };
+          }
+        } catch (e) {
+          console.error("Error checking voting for group:", e);
+        }
+      }
+      setGroupVotingStatus(votingStatus);
     } catch (e) {
       console.error("Error loading data:", e);
     } finally {
@@ -963,29 +987,29 @@ function GroupsView({ user, setView, setActiveGroupId }) {
     }
   }
 
-async function handleCreateGroup() {
-  if (!name.trim()) return alert("Name required");
-  
-  if (name.trim().length > 18) {
-    return alert("Group name must be max. 18 characters");
-  }
-  
-  if (!selectedEditionId) {
-    return alert("Please select an edition for your group");
-  }
+  async function handleCreateGroup() {
+    if (!name.trim()) return alert("Name required");
+    
+    if (name.trim().length > 18) {
+      return alert("Group name must be max. 18 characters");
+    }
+    
+    if (!selectedEditionId) {
+      return alert("Please select an edition for your group");
+    }
 
-  setCreating(true);
-  try {
-    await createGroup({ name: name.trim(), editionId: selectedEditionId });
-    setName("");
-    alert("✅ Group created successfully!");
-    await loadData();
-  } catch (e) {
-    alert("Error creating group: " + e.message);
-  } finally {
-    setCreating(false);
+    setCreating(true);
+    try {
+      await createGroup({ name: name.trim(), editionId: selectedEditionId });
+      setName("");
+      alert("✅ Group created successfully!");
+      await loadData();
+    } catch (e) {
+      alert("Error creating group: " + e.message);
+    } finally {
+      setCreating(false);
+    }
   }
-}
 
   if (loading) return <div className="text-center py-8">Loading groups...</div>;
 
@@ -995,32 +1019,44 @@ async function handleCreateGroup() {
 
       {/* Groups List */}
       <div className="grid gap-3">
-        {groups.map(g => (
-          <div key={g.id} className="p-3 border-4 border-black">
-            <div className="flex items-center gap-2">
-              <div className="font-extrabold text-lg">{g.name}</div>
-              <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
-                {g.group_members?.length || 0} member{g.group_members?.length !== 1 ? 's' : ''}
-              </span>
+        {groups.map(g => {
+          const memberCount = g.group_members?.length || 0;
+          const status = groupVotingStatus[g.id] || {};
+          const needsVote = status.hasActiveVoting && !status.hasVoted;
+          
+          return (
+            <div key={g.id} className="p-3 border-4 border-black">
+              <div className="flex items-center gap-2">
+                <div className="font-extrabold text-lg">{g.name}</div>
+                {needsVote && (
+                  <span className="px-2 py-0.5 border-2 border-black text-xs font-bold animate-pulse" 
+                        style={{ backgroundColor: '#ffcccc' }}>
+                    VOTE NOW!
+                  </span>
+                )}
+                <span className="ml-auto text-xs px-2 py-0.5 border-2 border-black">
+                  {memberCount} member{memberCount !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="text-xs mt-1 opacity-70">
+                Edition: {g.editions?.name || "—"}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button 
+                  className="p-2 border-2 border-black hover:opacity-90 transition-opacity" 
+                  style={{ backgroundColor: '#d8e1fc' }}
+                  onClick={() => { 
+                    setActiveGroupId(g.id); 
+                    setView("group"); 
+                  }}
+                >
+                  Open
+                </button>
+                <InviteButton groupId={g.id} />
+              </div>
             </div>
-            <div className="text-xs mt-1 opacity-70">
-              Edition: {g.editions?.name || "—"}
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button 
-                className="p-2 border-2 border-black hover:opacity-90 transition-opacity" 
-                style={{ backgroundColor: '#d8e1fc' }}
-                onClick={() => { 
-                  setActiveGroupId(g.id); 
-                  setView("group"); 
-                }}
-              >
-                Open
-              </button>
-              <InviteButton groupId={g.id} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {groups.length === 0 && (
           <p className="text-sm opacity-70">
             No groups yet. Create one and invite your friends.
@@ -1028,62 +1064,62 @@ async function handleCreateGroup() {
         )}
       </div>
 
-{/* Separator */}
-<div className="border-t-4 border-black pt-3">
-  {/* Create Group Form */}
-  <div className="space-y-2">
-    <label className="block text-sm font-bold">
-      Create a new group 
-      <span className={`ml-2 text-xs ${name.length > 18 ? 'text-red-600' : 'opacity-70'}`}>
-        ({name.length}/18)
-      </span>
-    </label>
-    <input 
-      className={`w-full p-3 border-4 ${name.length > 18 ? 'border-red-600' : 'border-black'}`}
-      placeholder="Group name" 
-      value={name} 
-      onChange={(e) => setName(e.target.value)} 
-    />
-    {name.length > 18 && (
-      <div className="text-xs text-red-600">Name is too long! Max 18 characters.</div>
-    )}
-    
-    {editions.length > 0 && (
-      <>
-        <label className="block text-sm font-bold">Select Edition</label>
-        <select
-          className="w-full p-3 border-4 border-black"
-          value={selectedEditionId}
-          onChange={(e) => setSelectedEditionId(e.target.value)}
-        >
-          {editions.map(ed => (
-            <option key={ed.id} value={ed.id}>
-              {ed.name} {ed.slug ? `(${ed.slug})` : ''}
-            </option>
-          ))}
-        </select>
-        <div className="text-xs opacity-70">
-          The edition determines which statements your group will use. This cannot be changed later.
+      {/* Separator */}
+      <div className="border-t-4 border-black pt-3">
+        {/* Create Group Form */}
+        <div className="space-y-2">
+          <label className="block text-sm font-bold">
+            Create a new group 
+            <span className={`ml-2 text-xs ${name.length > 18 ? 'text-red-600' : 'opacity-70'}`}>
+              ({name.length}/18)
+            </span>
+          </label>
+          <input 
+            className={`w-full p-3 border-4 ${name.length > 18 ? 'border-red-600' : 'border-black'}`}
+            placeholder="Group name" 
+            value={name} 
+            onChange={(e) => setName(e.target.value)} 
+          />
+          {name.length > 18 && (
+            <div className="text-xs text-red-600">Name is too long! Max 18 characters.</div>
+          )}
+          
+          {editions.length > 0 && (
+            <>
+              <label className="block text-sm font-bold">Select Edition</label>
+              <select
+                className="w-full p-3 border-4 border-black"
+                value={selectedEditionId}
+                onChange={(e) => setSelectedEditionId(e.target.value)}
+              >
+                {editions.map(ed => (
+                  <option key={ed.id} value={ed.id}>
+                    {ed.name} {ed.slug ? `(${ed.slug})` : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="text-xs opacity-70">
+                The edition determines which statements your group will use. This cannot be changed later.
+              </div>
+            </>
+          )}
+          
+          <button
+            className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: '#dce7d0' }}
+            onClick={handleCreateGroup}
+            disabled={creating || editions.length === 0 || name.length > 18}
+          >
+            {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
+          </button>
+          
+          {editions.length === 0 && (
+            <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
+              No active editions available. Please contact the admin to create editions.
+            </div>
+          )}
         </div>
-      </>
-    )}
-    
-    <button
-      className="w-full p-3 border-4 border-black font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
-      style={{ backgroundColor: '#dce7d0' }}
-      onClick={handleCreateGroup}
-      disabled={creating || editions.length === 0 || name.length > 18}
-    >
-      {creating ? "Creating..." : editions.length === 0 ? "No editions available" : "Create group"}
-    </button>
-    
-    {editions.length === 0 && (
-      <div className="p-3 border-4 border-black bg-yellow-100 text-sm">
-        No active editions available. Please contact the admin to create editions.
       </div>
-    )}
-  </div>
-</div>
     </section>
   );
 }
