@@ -1464,38 +1464,42 @@ function getNextStatementDate() {
     </div>
     
     {votingResults ? (
-      <div className="mt-3">
-        <div className="font-bold mb-2">🏆 Voting Results</div>
-        <div className="space-y-1">
-          {votingResults.results.map((result, idx) => (
-            <div 
-              key={result.userId}
-              className={`p-2 border-2 border-black flex items-center justify-between ${
-                result.votes === votingResults.maxVotes && result.votes > 0 ? 'font-bold' : ''
-              }`}
-              style={{ 
-                backgroundColor: result.votes === votingResults.maxVotes && result.votes > 0 ? '#fed89e' : 'white' 
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm">{idx + 1}.</span>
-                <span>
-                  {result.profile?.first_name || result.profile?.last_name ? 
-                    `${result.profile.first_name || ""} ${result.profile.last_name || ""}`.trim() : 
-                    result.profile?.email}
-                </span>
-                {result.votes === votingResults.maxVotes && result.votes > 0 && (
-                  <span className="text-sm">👑</span>
-                )}
-              </div>
-              <span className="px-2 py-0.5 border border-black text-sm">
-                {result.votes} vote{result.votes !== 1 ? 's' : ''}
-              </span>
-            </div>
-          ))}
+  <div className="mt-3">
+    <div className="font-bold mb-2">🏆 Voting Results</div>
+    <div className="space-y-1">
+      {votingResults.results.map((result, idx) => (
+        <div 
+          key={result.userId}
+          className={`p-2 border-2 border-black flex items-center justify-between ${
+            result.votes === votingResults.maxVotes && result.votes > 0 ? 'font-bold' : ''
+          }`}
+          style={{ 
+            backgroundColor: result.votes === votingResults.maxVotes && result.votes > 0 ? '#fed89e' : 'white' 
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm">{idx + 1}.</span>
+            <Avatar 
+              img={result.profile?.image_url} 
+              size={24}
+            />
+            <span>
+              {result.profile?.first_name || result.profile?.last_name ? 
+                `${result.profile.first_name || ""} ${result.profile.last_name || ""}`.trim() : 
+                result.profile?.email}
+            </span>
+            {result.votes === votingResults.maxVotes && result.votes > 0 && (
+              <span className="text-sm">👑</span>
+            )}
+          </div>
+          <span className="px-2 py-0.5 border border-black text-sm">
+            {result.votes} vote{result.votes !== 1 ? 's' : ''}
+          </span>
         </div>
-      </div>
-    ) : (
+      ))}
+    </div>
+  </div>
+) : (
       <VotePanel 
         round={activeRound} 
         group={group}
