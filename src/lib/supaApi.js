@@ -474,6 +474,29 @@ export async function createRound({ groupId, statementId, expiresIn = 24 * 60 * 
   return data;
 }
 
+// Email notification helper
+export async function triggerNewRoundEmail(roundId) {
+  try {
+    const { data, error } = await supabase.functions.invoke('send-round-email', {
+      body: { 
+        record: {
+          id: roundId,
+          // Die Edge Function holt sich die restlichen Daten selbst
+        }
+      }
+    });
+    
+    if (error) {
+      console.error('Error triggering round email:', error);
+    } else {
+      console.log('Round email triggered successfully');
+    }
+    return data;
+  } catch (e) {
+    console.error('Failed to trigger round email:', e);
+  }
+}
+
 export async function closeRound(roundId, winner, votesCount) {
   // Prüfe zuerst ob schon ein round_result existiert
   const { data: existing } = await supabase

@@ -1189,52 +1189,101 @@ function GroupDetail({ groupId, user, setView, setActiveRoundId }) {
   }
 
   async function handleStartNewRound() {
+  try {
+    const editionId = group.edition_id;
+    if (!editionId) {
+      alert("Group has no edition assigned!");
+      return;
+    }
+    
+    // Hole alle Statements der Edition
+    const { data: allStatements, error: stmtError } = await supabase
+      .from("statements")
+      .select("*")
+      .eq("edition_id", editionId)
+      .eq("deleted", false);
+    
+    if (stmtError) throw stmtError;
+    
+    // Hole bereits verwendete Statements
+    const { data: usedStatements, error: usedError } = await supabase
+      .from("group_used_statements")
+      .select("statement_id")
+      .eq("group_id", groupId);
+    
+    if (usedError) throw usedError;
+    
+    // Filtere unbenutzte Statements
+    const usedIds = usedStatements?.map(u => u.statement_id) || [];
+    const unusedStatements = allStatements.filter(s => !usedIds.includes(s.id));
+    
+    if (unusedStatements.length === 0) {
+      alert("No unused statements left in this edition!");
+      return;
+    }
+    
+    // Wähle zufälliges Statement
+    const randomIndex = Math.floor(Math.random() * unusedStatements.length);
+    const stmt = unusedStatements[randomIndex];
+    
+    // Erstelle neue Round
+    const round = await createRound({
+      groupId,
+      statementId: stmt.id,
+      expiresIn: DAY
+    });
+    
+    // Markiere Statement als verwendet
+    await markStatementUsed(groupId, stmt.id);
+    
+    // NEU: Trigger Email-Benachrichtigung mit fetch statt invoke
     try {
-      const editionId = group.edition_id;
-      if (!editionId) {
-        alert("Group has no edition assigned!");
-        return;
-      }
+      console.log('Triggering new round email for round:', round);
       
-      const { data: allStatements, error: stmtError } = await supabase
-  .from("statements")
-  .select("*")
-  .eq("edition_id", editionId)
-  .eq("deleted", false);
+      // Hole die Supabase URL und Anon Key
+      const supabaseUrl = supabase.supabaseUrl;
+      const supabaseAnonKey = supabase.supabaseKey;
       
-      if (stmtError) throw stmtError;
-      
-      const { data: usedStatements, error: usedError } = await supabase
-        .from("group_used_statements")
-        .select("statement_id")
-        .eq("group_id", groupId);
-      
-      if (usedError) throw usedError;
-      
-      const usedIds = usedStatements?.map(u => u.statement_id) || [];
-      const unusedStatements = allStatements.filter(s => !usedIds.includes(s.id));
-      
-      if (unusedStatements.length === 0) {
-        alert("No unused statements left in this edition!");
-        return;
-      }
-      
-      const randomIndex = Math.floor(Math.random() * unusedStatements.length);
-      const stmt = unusedStatements[randomIndex];
-      
-      const round = await createRound({
-        groupId,
-        statementId: stmt.id,
-        expiresIn: DAY
+      // Nutze fetch direkt
+      const response = await fetch(`${supabaseUrl}/functions/v1/send-round-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`
+        },
+        body: JSON.stringify({
+          record: {
+            id: round.id,
+            group_id: groupId,
+            statement_id: stmt.id,
+            issued_at: round.issued_at || new Date().toISOString(),
+            expires_at: round.expires_at || new Date(Date.now() + DAY).toISOString()
+          }
+        })
       });
       
-      await markStatementUsed(groupId, stmt.id);
-      setRefresh(r => r + 1);
-    } catch (e) {
-      console.error("Error starting round:", e);
-      alert("Error starting round: " + e.message);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Email function returned error:', response.status, errorText);
+      } else {
+        const emailResult = await response.json();
+        console.log('Round email sent successfully:', emailResult);
+      }
+      
+    } catch (emailException) {
+      console.error('Exception triggering round email:', emailException);
+      // Fehler bei Email soll nicht die Round-Erstellung blockieren
+      // Die Runde wurde trotzdem erstellt
     }
+    
+    // Refresh die Ansicht
+    setRefresh(r => r + 1);
+    
+  } catch (e) {
+    console.error("Error starting round:", e);
+    alert("Error starting round: " + e.message);
   }
+}
 
   async function checkAndCloseRound() {
   if (!activeRound) return;
