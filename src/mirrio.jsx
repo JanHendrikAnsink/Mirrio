@@ -73,36 +73,50 @@ export default function Mirrio() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Set page title and meta description
-  useEffect(() => {
-    document.title = "Mirrio – Playfully understand each other better";
+  // Set page title and meta description
+useEffect(() => {
+  document.title = "Mirrio – The loving troublemaker";
+  
+  // Set meta description
+  let metaDescription = document.querySelector('meta[name="description"]');
+  if (!metaDescription) {
+    metaDescription = document.createElement('meta');
+    metaDescription.name = 'description';
+    document.head.appendChild(metaDescription);
+  }
+  metaDescription.content = "Discover your strengths, quirks, and special moments together with Mirrio. Playful, anonymous, and kind – for deeper conversations, more understanding, and stronger bonds.";
+  
+  // Add global styles for cursor pointer on all buttons
+  const style = document.createElement('style');
+  style.textContent = `
+    button { cursor: pointer; }
+    input[type="radio"] { cursor: pointer; }
+    input[type="checkbox"] { cursor: pointer; }
+    select { cursor: pointer; }
+    label:has(input[type="radio"]) { cursor: pointer; }
+    label:has(input[type="checkbox"]) { cursor: pointer; }
     
-    // Set meta description
-    let metaDescription = document.querySelector('meta[name="description"]');
-    if (!metaDescription) {
-      metaDescription = document.createElement('meta');
-      metaDescription.name = 'description';
-      document.head.appendChild(metaDescription);
+    /* Fix select height on iOS Safari */
+    select {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 0.7rem center;
+      background-size: 1.5em 1.5em;
+      padding-right: 2.5rem !important;
+      min-height: 56px;
     }
-    metaDescription.content = "Discover your strengths, quirks, and special moments together with Mirrio. Playful, anonymous, and kind – for deeper conversations, more understanding, and stronger bonds.";
-    
-    // Add global styles for cursor pointer on all buttons
-    const style = document.createElement('style');
-    style.textContent = `
-      button { cursor: pointer; }
-      input[type="radio"] { cursor: pointer; }
-      input[type="checkbox"] { cursor: pointer; }
-      select { cursor: pointer; }
-      label:has(input[type="radio"]) { cursor: pointer; }
-      label:has(input[type="checkbox"]) { cursor: pointer; }
-    `;
-    document.head.appendChild(style);
-    
-    return () => {
-      if (style.parentNode) {
-        style.parentNode.removeChild(style);
-      }
-    };
-  }, []);
+  `;
+  document.head.appendChild(style);
+  
+  return () => {
+    if (style.parentNode) {
+      style.parentNode.removeChild(style);
+    }
+  };
+}, []);
 
 // Auth state management
 useEffect(() => {
@@ -913,13 +927,6 @@ function ProfileView({ user, profile, onUpdate }) {
             </button>
           </div>
         )}
-      </div>
-
-      {/* Account Info */}
-      <div className="text-xs opacity-70 border-t-4 border-black pt-4">
-        <div>Email: <b>{user.email}</b></div>
-        <div>User ID: <code>{user.id}</code></div>
-        <div>Last Sign In: {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : "Never"}</div>
       </div>
     </section>
   );
