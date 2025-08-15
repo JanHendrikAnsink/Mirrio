@@ -101,10 +101,13 @@ export async function deleteEdition(id) {
 }
 
 /** ===================== Statements CRUD ===================== **/
-export async function listStatements({ editionId } = {}) {
-  let q = supabase.from("statements").select("*").order("created_at", { ascending: false });
-  if (editionId) q = q.eq("edition_id", editionId);
-  const { data, error } = await q;
+export async function listStatements({ editionId }) {
+  const { data, error } = await supabase
+    .from("statements")
+    .select("*")
+    .eq("edition_id", editionId)
+    .eq("deleted", false) // Nur aktive anzeigen
+    .order("created_at", { ascending: false });
   if (error) throw error;
   return data;
 }
@@ -131,9 +134,20 @@ export async function updateStatementText(id, text) {
 }
 
 export async function deleteStatement(id) {
-  const { error } = await supabase.from("statements").delete().eq("id", id);
+  // Soft delete statt hard delete
+  const { error } = await supabase
+    .from("statements")
+    .update({ deleted: true })
+    .eq("id", id);
   if (error) throw error;
-  return true;
+}
+
+export async function restoreStatement(id) {
+  const { error } = await supabase
+    .from("statements")
+    .update({ deleted: false })
+    .eq("id", id);
+  if (error) throw error;
 }
 
 /** ===================== Groups ===================== **/

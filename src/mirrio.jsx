@@ -1197,9 +1197,10 @@ function GroupDetail({ groupId, user, setView, setActiveRoundId }) {
       }
       
       const { data: allStatements, error: stmtError } = await supabase
-        .from("statements")
-        .select("*")
-        .eq("edition_id", editionId);
+  .from("statements")
+  .select("*")
+  .eq("edition_id", editionId)
+  .eq("deleted", false);
       
       if (stmtError) throw stmtError;
       
@@ -2828,40 +2829,61 @@ function AdminStatementsTab({ editions, selectedEditionId, onSelectEdition, stat
 
 function StatementRow({ st, isAdmin, onChanged }) {
   const [text, setText] = useState(st.text || "");
+  const isDeleted = st.deleted;
   
   return (
-    <div className="p-2 border-2 border-black">
-      <div className="text-xs opacity-70 mb-1">ID: <code>{st.id}</code></div>
+    <div className={`p-2 border-2 border-black ${isDeleted ? 'opacity-50 bg-gray-100' : ''}`}>
+      <div className="text-xs opacity-70 mb-1">
+        ID: <code>{st.id}</code>
+        {isDeleted && <span className="ml-2 text-red-600">[DELETED]</span>}
+      </div>
       <textarea 
         className="w-full p-2 border-2 border-black" 
         rows={2} 
         value={text} 
-        onChange={(e) => setText(e.target.value)} 
+        onChange={(e) => setText(e.target.value)}
+        disabled={isDeleted}
       />
       <div className="mt-2 flex gap-2 justify-end">
-        <button 
-          className="px-2 py-1 border-2 border-black disabled:opacity-50" 
-          disabled={!isAdmin} 
-          onClick={async () => {
-            if (!isAdmin) return;
-            await updateStatementText(st.id, text.trim());
-            await onChanged();
-          }}
-        >
-          Save
-        </button>
-        <button 
-          className="px-2 py-1 border-2 border-black disabled:opacity-50" 
-          disabled={!isAdmin} 
-          onClick={async () => {
-            if (!isAdmin) return;
-            if (!confirm("Delete statement?")) return;
-            await deleteStatement(st.id);
-            await onChanged();
-          }}
-        >
-          Delete
-        </button>
+        {!isDeleted ? (
+          <>
+            <button 
+              className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+              disabled={!isAdmin} 
+              onClick={async () => {
+                if (!isAdmin) return;
+                await updateStatementText(st.id, text.trim());
+                await onChanged();
+              }}
+            >
+              Save
+            </button>
+            <button 
+              className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+              disabled={!isAdmin} 
+              onClick={async () => {
+                if (!isAdmin) return;
+                if (!confirm("Delete statement? (It will be soft-deleted and can be restored)")) return;
+                await deleteStatement(st.id);
+                await onChanged();
+              }}
+            >
+              Delete
+            </button>
+          </>
+        ) : (
+          <button 
+            className="px-2 py-1 border-2 border-black disabled:opacity-50" 
+            disabled={!isAdmin} 
+            onClick={async () => {
+              if (!isAdmin) return;
+              await restoreStatement(st.id);
+              await onChanged();
+            }}
+          >
+            Restore
+          </button>
+        )}
       </div>
     </div>
   );
