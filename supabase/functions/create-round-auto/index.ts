@@ -6,18 +6,77 @@ const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
 serve(async (req) => {
   try {
-    console.log('Auto-create rounds cron job started');
+    console.log('Auto-create/close rounds cron job started');
     
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     
-    // Hole alle Gruppen
-    const { data: groups, error: groupsError } = await supabase
+    // ========================================
+    // TEIL 1: Schließe abgelaufene Rounds
+    // ========================================
+    const { data: expiredRounds } = await supabase
+      .from('rounds')
+      .select(`
+        id, 
+        group_id,
+        expires_at,
+        votes(voter, target)
+      `)
+      .lt('expires_at', new Date().toISOString())
+      .is('round_results.closed_at', null);
+    
+    console.log(`Found ${expiredRounds?.length || 0} expired rounds to close`);
+    
+    for (const round of expiredRounds || []) {
+      // Zähle Votes
+      const voteCounts: Record<string, number> = {};
+      round.votes?.forEach((v: any) => {
+        if (v.target) {
+          voteCounts[v.target] = (voteCounts[v.target] || 0) + 1;
+        }
+      });
+      
+      const maxVotes = Math.max(0, ...Object.values(voteCounts));
+      const winners = Object.entries(voteCounts)
+        .filter(([, count]) => count === maxVotes)
+        .map(([userId]) => userId);
+      
+      const winner = winners.length === 1 ? winners[0] : null;
+      
+      // Schließe Round
+      const { error: closeError } = await supabase
+        .from('round_results')
+        .insert({
+          round_id: round.id,
+          winner,
+          votes_count: maxVotes,
+          closed_at: new Date().toISOString()
+        });
+      
+      if (!closeError) {
+        console.log(`Closed round ${round.id} with winner ${winner}`);
+        
+        // Sende Result-Email via Edge Function
+        await supabase.functions.invoke('send-result-email', {
+          body: { 
+            record: {
+              round_id: round.id,
+              winner,
+              votes_count: maxVotes,
+              closed_at: new Date().toISOString()
+            }
+          }
+        });
+      }
+    }
+    
+    // ========================================
+    // TEIL 2: Erstelle neue Rounds (wie bisher)
+    // ========================================
+    const { data: groups } = await supabase
       .from('groups')
-      .select('id, name, edition_id')
+      .select('id, name, edition_id');
     
-    if (groupsError) throw groupsError;
-    
-    console.log(`Processing ${groups?.length || 0} groups`);
+    console.log(`Processing ${groups?.length || 0} groups for new rounds`);
     
     let roundsCreated = 0;
     
@@ -27,46 +86,40 @@ serve(async (req) => {
         .from('rounds')
         .select('id')
         .eq('group_id', group.id)
-        .gt('expires_at', new Date().toISOString())
-        .is('round_results.closed_at', null)
+        .gt('expires_at', new Date().toISOString());
       
       if (activeRounds && activeRounds.length > 0) {
-        console.log(`Group ${group.name} has active round, skipping`);
         continue;
       }
       
-      // Hole letzte Round um zu prüfen ob 48h vergangen sind
+      // Prüfe ob 48h seit letzter Round
       const { data: lastRound } = await supabase
         .from('rounds')
         .select('issued_at')
         .eq('group_id', group.id)
         .order('issued_at', { ascending: false })
         .limit(1)
-        .single()
+        .single();
       
       if (lastRound) {
         const hoursSinceLastRound = (Date.now() - new Date(lastRound.issued_at).getTime()) / (1000 * 60 * 60);
         if (hoursSinceLastRound < 48) {
-          console.log(`Group ${group.name}: Only ${hoursSinceLastRound.toFixed(1)}h since last round, skipping`);
           continue;
         }
       }
       
-      // Hole nächstes Statement über RPC function
-      const { data: nextStatement, error: stmtError } = await supabase
+      // Hole nächstes Statement
+      const { data: nextStatement } = await supabase
         .rpc('next_statement_for_group', { g: group.id })
-        .single()
+        .single();
       
-      if (stmtError || !nextStatement) {
-        console.log(`Group ${group.name}: No unused statements available`);
-        continue;
-      }
+      if (!nextStatement) continue;
       
-      // Erstelle neue Round (24h Laufzeit)
+      // Erstelle neue Round
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
       
-      const { error: roundError } = await supabase
+      const { data: newRound, error: roundError } = await supabase
         .from('rounds')
         .insert({
           group_id: group.id,
@@ -74,28 +127,32 @@ serve(async (req) => {
           issued_at: new Date().toISOString(),
           expires_at: expiresAt.toISOString()
         })
+        .select()
+        .single();
       
-      if (roundError) {
-        console.error(`Error creating round for ${group.name}:`, roundError);
-        continue;
+      if (!roundError && newRound) {
+        // Markiere Statement als verwendet
+        await supabase
+          .from('group_used_statements')
+          .insert({
+            group_id: group.id,
+            statement_id: nextStatement.id
+          });
+        
+        // Sende New-Round-Email
+        await supabase.functions.invoke('send-round-email', {
+          body: { record: newRound }
+        });
+        
+        console.log(`Created round for ${group.name}`);
+        roundsCreated++;
       }
-      
-      // Markiere Statement als verwendet
-      await supabase
-        .from('group_used_statements')
-        .insert({
-          group_id: group.id,
-          statement_id: nextStatement.id
-        })
-      
-      console.log(`Created round for group ${group.name} with statement: ${nextStatement.text}`);
-      roundsCreated++;
     }
     
     return new Response(
       JSON.stringify({ 
-        success: true, 
-        groupsProcessed: groups?.length || 0,
+        success: true,
+        roundsClosed: expiredRounds?.length || 0,
         roundsCreated 
       }),
       { headers: { 'Content-Type': 'application/json' } }

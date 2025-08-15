@@ -1378,6 +1378,11 @@ function getNextStatementDate() {
   const isOwner = group.owner === user.id;
   const votingResults = getVotingResults();
 
+  const hasCompletedRounds = rounds.filter(r => {
+  const isClosed = !!r.round_results?.[0]?.closed_at;
+  return isClosed;
+}).length > 0;
+
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-2">
@@ -1419,7 +1424,7 @@ function getNextStatementDate() {
           className="mt-2 w-full p-3 border-4 border-black font-bold"
           onClick={handleStartNewRound}
         >
-          Start new round
+          Start the first round
         </button>
       )}
       {!isOwner && (
