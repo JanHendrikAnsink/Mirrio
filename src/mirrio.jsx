@@ -1424,7 +1424,7 @@ function getNextStatementDate() {
           className="mt-2 w-full p-3 border-4 border-black font-bold"
           onClick={handleStartNewRound}
         >
-          Start the first round
+          Drop the first statement
         </button>
       )}
       {!isOwner && (
