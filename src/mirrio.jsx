@@ -1456,10 +1456,10 @@ function getNextStatementDate() {
   </div>
 )}
 
-    {/* Active Round or Start Button */}
+{/* Active Round or Start Button */}
 {!activeRound ? (
   <>
-    {/* Next Statement Countdown - nur zeigen wenn kein Voting läuft */}
+    {/* Next Statement Countdown */}
     <div className="p-3 border-4 border-black" style={{ backgroundColor: '#ffe4cc' }}>
       <div className="text-sm">
         Next statement drops in: <b>{humanTime(nextStatementTime)}</b>
@@ -1473,7 +1473,7 @@ function getNextStatementDate() {
           className="mt-2 w-full p-3 border-4 border-black font-bold"
           onClick={handleStartNewRound}
         >
-          Drop the first statement
+          {hasCompletedRounds ? "Start new round" : "Start the first round"}
         </button>
       )}
       {!isOwner && (
@@ -1484,62 +1484,73 @@ function getNextStatementDate() {
     </div>
   </>
 ) : (
-  <div className="p-3 border-4 border-black">
-    {/* Voting countdown wenn Voting läuft und noch nicht beendet */}
-    {!votingResults && (
-      <div className="text-xs mb-1">
-        Voting ends in <b>{humanTime(timeLeft)}</b>
-      </div>
-    )}
+  <div className="relative overflow-hidden">
+    <div 
+      className="absolute inset-0 opacity-10"
+      style={{
+        background: 'linear-gradient(135deg, #fed89e 0%, #d8e1fc 50%, #dce7d0 100%)'
+      }}
+    />
     
-    <div className="font-extrabold text-lg">
-      {activeRound.statements?.text ? `"${activeRound.statements.text}"` : "Loading statement..."}
-    </div>
-    
-    {votingResults ? (
-  <div className="mt-3">
-    <div className="font-bold mb-2">🏆 Voting Results</div>
-    <div className="space-y-1">
-      {votingResults.results.map((result, idx) => (
-        <div 
-          key={result.userId}
-          className={`p-2 border-2 border-black flex items-center justify-between ${
-            result.votes === votingResults.maxVotes && result.votes > 0 ? 'font-bold' : ''
-          }`}
-          style={{ 
-            backgroundColor: result.votes === votingResults.maxVotes && result.votes > 0 ? '#fed89e' : 'white' 
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-sm">{idx + 1}.</span>
-            <Avatar 
-              img={result.profile?.image_url} 
-              size={24}
-            />
-            <span>
-              {result.profile?.first_name || result.profile?.last_name ? 
-                `${result.profile.first_name || ""} ${result.profile.last_name || ""}`.trim() : 
-                result.profile?.email}
-            </span>
-            {result.votes === votingResults.maxVotes && result.votes > 0 && (
-              <span className="text-sm">👑</span>
-            )}
-          </div>
-          <span className="px-2 py-0.5 border border-black text-sm">
-            {result.votes} vote{result.votes !== 1 ? 's' : ''}
-          </span>
+    <div className="relative p-6 border-4 border-black bg-white shadow-lg">      
+      {!votingResults && (
+        <div className="mb-4 text-sm font-medium">
+          ⏰ Voting ends in <b className="text-lg">{humanTime(timeLeft)}</b>
         </div>
-      ))}
+      )}
+      
+      <div className="my-6 p-6 border-4 border-black transform -rotate-1 hover:rotate-0 transition-transform"
+           style={{ backgroundColor: '#ffe4cc' }}>
+        <div className="font-black text-2xl md:text-3xl leading-tight text-center">
+          "{activeRound.statements?.text || "Loading statement..."}"
+        </div>
+      </div>
+      
+      {votingResults ? (
+        <div className="mt-3">
+          <div className="font-bold mb-2">🏆 Voting Results</div>
+          <div className="space-y-1">
+            {votingResults.results.map((result, idx) => (
+              <div 
+                key={result.userId}
+                className={`p-2 border-2 border-black flex items-center justify-between ${
+                  result.votes === votingResults.maxVotes && result.votes > 0 ? 'font-bold' : ''
+                }`}
+                style={{ 
+                  backgroundColor: result.votes === votingResults.maxVotes && result.votes > 0 ? '#fed89e' : 'white' 
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">{idx + 1}.</span>
+                  <Avatar 
+                    img={result.profile?.image_url} 
+                    size={24}
+                  />
+                  <span>
+                    {result.profile?.first_name || result.profile?.last_name ? 
+                      `${result.profile.first_name || ""} ${result.profile.last_name || ""}`.trim() : 
+                      result.profile?.email}
+                  </span>
+                  {result.votes === votingResults.maxVotes && result.votes > 0 && (
+                    <span className="text-sm">👑</span>
+                  )}
+                </div>
+                <span className="px-2 py-0.5 border border-black text-sm">
+                  {result.votes} vote{result.votes !== 1 ? 's' : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <VotePanel 
+          round={activeRound} 
+          group={group}
+          user={user} 
+          onVoted={() => setRefresh(r => r + 1)}
+        />
+      )}
     </div>
-  </div>
-) : (
-      <VotePanel 
-        round={activeRound} 
-        group={group}
-        user={user} 
-        onVoted={() => setRefresh(r => r + 1)}
-      />
-    )}
   </div>
 )}
 
